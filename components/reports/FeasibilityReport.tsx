@@ -40,17 +40,17 @@ const FeasibilityReport: React.FC = () => {
             const salesFreq = new Set(salesInvoicesInPeriod.filter(inv => inv.items.some(i => i.itemId === item.id)).map(inv => inv.id)).size;
 
             const totalProdKg = itemProductions.reduce((sum, p) => {
-                const kg = item.packingType === PackingType.Bales ? p.quantityProduced * item.baleSize : p.quantityProduced;
+                const kg = item.packingType !== PackingType.Kg ? p.quantityProduced * item.baleSize : p.quantityProduced;
                 return sum + kg;
             }, 0);
 
             const totalSalesKg = itemSales.reduce((sum, i) => {
-                const kg = item.packingType === PackingType.Bales ? i.quantity * item.baleSize : i.quantity;
+                const kg = item.packingType !== PackingType.Kg ? i.quantity * item.baleSize : i.quantity;
                 return sum + kg;
             }, 0);
 
             const totalSalesValue = itemSales.reduce((sum, i) => {
-                const kg = item.packingType === PackingType.Bales ? i.quantity * item.baleSize : i.quantity;
+                const kg = item.packingType !== PackingType.Kg ? i.quantity * item.baleSize : i.quantity;
                 return sum + (kg * (i.rate || 0));
             }, 0);
 
@@ -121,25 +121,13 @@ const FeasibilityReport: React.FC = () => {
         { label: 'Total Prod (Kg)', key: 'totalProdKg' },
         { label: 'Total Sales (Kg)', key: 'totalSalesKg' },
         { label: 'Avg Prod Price/Kg', key: 'avgProductionPrice' },
-        { label: 'Avg Sales Price/Kg', key: 'avgActualSalesPrice' },
+        { label: 'Avg Actual Sales Price/Kg', key: 'avgActualSalesPrice' },
         { label: 'Margin/Kg', key: 'marginPerKg' },
         { label: 'Total P/L', key: 'totalProfitLoss' },
         { label: 'Feasibility', key: 'feasibility' },
     ];
     
     const formatCurrency = (val: number) => val.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-
-    const getFeasibilityColor = (feasibility: string) => {
-        switch (feasibility) {
-            case 'Excellent': return 'bg-green-100 text-green-800';
-            case 'Good': return 'bg-blue-100 text-blue-800';
-            case 'Average': return 'bg-slate-100 text-slate-800';
-            case 'Review': return 'bg-yellow-100 text-yellow-800';
-            case 'Poor': return 'bg-red-100 text-red-800';
-            default: return 'bg-gray-100 text-gray-800';
-        }
-    };
-
 
     return (
         <div className="report-print-area">
@@ -150,69 +138,70 @@ const FeasibilityReport: React.FC = () => {
                 exportFilename={`FeasibilityReport_${filters.startDate}_to_${filters.endDate}`}
             />
             <ReportFilters filters={filters} onFilterChange={handleFilterChange}>
-                <div>
+                 <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
-                    <select value={filters.categoryId} onChange={(e) => handleFilterChange('categoryId', e.target.value)} className="w-full p-2 border border-slate-300 rounded-md text-sm">
+                    <select
+                        value={filters.categoryId}
+                        onChange={(e) => handleFilterChange('categoryId', e.target.value)}
+                        className="w-full p-2 border border-slate-300 rounded-md text-sm"
+                    >
                         <option value="">All Categories</option>
-                        {state.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        {state.categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                     </select>
                 </div>
-                <div>
+                 <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Section</label>
-                    <select value={filters.sectionId} onChange={(e) => handleFilterChange('sectionId', e.target.value)} className="w-full p-2 border border-slate-300 rounded-md text-sm">
+                    <select
+                        value={filters.sectionId}
+                        onChange={(e) => handleFilterChange('sectionId', e.target.value)}
+                        className="w-full p-2 border border-slate-300 rounded-md text-sm"
+                    >
                         <option value="">All Sections</option>
-                        {state.sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        {state.sections.map(sec => <option key={sec.id} value={sec.id}>{sec.name}</option>)}
                     </select>
                 </div>
             </ReportFilters>
-
+            <p className="text-sm text-slate-600 mb-4">
+                This report analyzes item feasibility based on production, sales, and profitability within the selected period.
+            </p>
             <div className="overflow-x-auto">
                 <table className="w-full text-left table-auto text-sm">
                     <thead>
                         <tr className="bg-slate-100">
                             <th className="p-2 font-semibold text-slate-600">Item</th>
-                            <th className="p-2 font-semibold text-slate-600 text-center">Prod. Freq (Days)</th>
-                            <th className="p-2 font-semibold text-slate-600 text-center">Sales Freq (Inv)</th>
-                            <th className="p-2 font-semibold text-slate-600 text-right">Prod. (Kg)</th>
-                            <th className="p-2 font-semibold text-slate-600 text-right">Sales (Kg)</th>
-                            <th className="p-2 font-semibold text-slate-600 text-right">Avg. Prod Price</th>
-                            <th className="p-2 font-semibold text-slate-600 text-right">Avg. Sales Price</th>
+                            <th className="p-2 font-semibold text-slate-600 text-center">Feasibility</th>
+                            <th className="p-2 font-semibold text-slate-600 text-right">Prod Freq</th>
+                            <th className="p-2 font-semibold text-slate-600 text-right">Sales Freq</th>
+                            <th className="p-2 font-semibold text-slate-600 text-right">Prod Kg</th>
+                            <th className="p-2 font-semibold text-slate-600 text-right">Sales Kg</th>
                             <th className="p-2 font-semibold text-slate-600 text-right">Margin/Kg</th>
                             <th className="p-2 font-semibold text-slate-600 text-right">Total P/L</th>
-                            <th className="p-2 font-semibold text-slate-600 text-center">Feasibility</th>
                         </tr>
                     </thead>
                     <tbody>
                         {reportData.map(item => (
                             <tr key={item.id} className="border-b hover:bg-slate-50">
-                                <td className="p-2 text-slate-800">{item.name} <span className="text-xs text-slate-500">({item.id})</span></td>
-                                <td className="p-2 text-slate-800 text-center">{item.productionFreq}</td>
-                                <td className="p-2 text-slate-800 text-center">{item.salesFreq}</td>
-                                <td className="p-2 text-slate-800 text-right">{item.totalProdKg.toFixed(2)}</td>
-                                <td className="p-2 text-slate-800 text-right">{item.totalSalesKg.toFixed(2)}</td>
-                                <td className="p-2 text-slate-800 text-right">{formatCurrency(item.avgProductionPrice)}</td>
-                                <td className="p-2 text-slate-800 text-right">{formatCurrency(item.avgActualSalesPrice)}</td>
-                                <td className={`p-2 text-right font-medium ${item.marginPerKg >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatCurrency(item.marginPerKg)}</td>
-                                <td className={`p-2 text-right font-bold ${item.totalProfitLoss >= 0 ? 'text-green-800' : 'text-red-800'}`}>{formatCurrency(item.totalProfitLoss)}</td>
-                                <td className="p-2 text-center">
-                                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getFeasibilityColor(item.feasibility)}`}>
-                                        {item.feasibility}
-                                    </span>
-                                </td>
+                                <td className="p-2 text-slate-700">{item.name}</td>
+                                <td className="p-2 text-center font-medium">{item.feasibility}</td>
+                                <td className="p-2 text-slate-700 text-right">{item.productionFreq}</td>
+                                <td className="p-2 text-slate-700 text-right">{item.salesFreq}</td>
+                                <td className="p-2 text-slate-700 text-right">{item.totalProdKg.toFixed(2)}</td>
+                                <td className="p-2 text-slate-700 text-right">{item.totalSalesKg.toFixed(2)}</td>
+                                <td className={`p-2 text-right font-medium ${item.marginPerKg > 0 ? 'text-green-700' : 'text-red-700'}`}>{formatCurrency(item.marginPerKg)}</td>
+                                <td className={`p-2 text-right font-bold ${item.totalProfitLoss > 0 ? 'text-green-800' : 'text-red-800'}`}>{formatCurrency(item.totalProfitLoss)}</td>
                             </tr>
                         ))}
                     </tbody>
-                     <tfoot>
+                    <tfoot>
                         <tr className="bg-slate-100 font-bold">
-                            <td colSpan={8} className="p-2 text-right text-slate-800">Grand Total P/L</td>
-                            <td className={`p-2 text-right text-lg ${totals.totalProfitLoss >= 0 ? 'text-green-800' : 'text-red-800'}`}>{formatCurrency(totals.totalProfitLoss)}</td>
-                            <td></td>
+                            <td colSpan={7} className="p-2 text-right text-slate-800">Total Profit/Loss</td>
+                            <td className="p-2 text-right text-slate-800">{formatCurrency(totals.totalProfitLoss)}</td>
                         </tr>
                     </tfoot>
                 </table>
                  {reportData.length === 0 && (
                     <p className="text-center text-slate-500 py-6">
-                        No items with sales or production activity match the current filters.
+                        No items with sales or production data match the selected criteria.
                     </p>
                 )}
             </div>
@@ -220,4 +209,5 @@ const FeasibilityReport: React.FC = () => {
     );
 };
 
+// FIX: Add default export for the component
 export default FeasibilityReport;

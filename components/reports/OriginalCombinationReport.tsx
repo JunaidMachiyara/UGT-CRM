@@ -122,7 +122,7 @@ const OriginalCombinationReport: React.FC = () => {
         productionsInPeriod.forEach(prod => {
             const item = state.items.find(i => i.id === prod.itemId);
             if (item) {
-                const producedKg = prod.quantityProduced * (item.packingType === PackingType.Bales ? item.baleSize : 1);
+                const producedKg = prod.quantityProduced * (item.packingType !== PackingType.Kg ? item.baleSize : 1);
                 totalProducedKg += producedKg;
 
                 const productionWorth = producedKg * item.avgProductionPrice;
@@ -203,12 +203,12 @@ const OriginalCombinationReport: React.FC = () => {
             });
     
         const totalKgForCategory = rawItems.reduce((sum, { production, item }) => {
-            const totalKg = production.quantityProduced * (item!.packingType === PackingType.Bales ? item!.baleSize : 1);
+            const totalKg = production.quantityProduced * (item!.packingType !== PackingType.Kg ? item!.baleSize : 1);
             return sum + totalKg;
         }, 0);
     
         const items: ModalDrilldownItem[] = rawItems.map(({ production, item }) => {
-            const totalKg = production.quantityProduced * (item!.packingType === PackingType.Bales ? item!.baleSize : 1);
+            const totalKg = production.quantityProduced * (item!.packingType !== PackingType.Kg ? item!.baleSize : 1);
             const priceToUse = filters.priceType === 'sales' ? item!.avgSalesPrice : item!.avgProductionPrice;
             const totalWorth = totalKg * priceToUse;
             const percentage = totalKgForCategory > 0 ? (totalKg / totalKgForCategory) * 100 : 0;
@@ -229,14 +229,14 @@ const OriginalCombinationReport: React.FC = () => {
             .filter((data): data is { production: Production; item: Item; sectionName: string } => !!data && data.sectionName === sectionName);
 
         const totalKgForSection = rawItems.reduce((sum, { production, item }) => {
-            const totalKg = production.quantityProduced * (item.packingType === PackingType.Bales ? item.baleSize : 1);
+            const totalKg = production.quantityProduced * (item.packingType !== PackingType.Kg ? item.baleSize : 1);
             return sum + totalKg;
         }, 0);
 
         const items: ModalDrilldownItem[] = rawItems.map(data => {
             const item = data.item;
             const production = data.production;
-            const totalKg = production.quantityProduced * (item.packingType === PackingType.Bales ? item.baleSize : 1);
+            const totalKg = production.quantityProduced * (item.packingType !== PackingType.Kg ? item.baleSize : 1);
             const priceToUse = filters.priceType === 'sales' ? item.avgSalesPrice : item.avgProductionPrice;
             const totalWorth = totalKg * priceToUse;
             const percentage = totalKgForSection > 0 ? (totalKg / totalKgForSection) * 100 : 0;

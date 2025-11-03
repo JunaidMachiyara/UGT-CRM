@@ -2,7 +2,7 @@ import React, { createContext, useContext, useReducer, ReactNode, useEffect, use
 import { 
     AppState, PackingType, JournalEntry, JournalEntryType,
     InvoiceStatus, Currency, LogisticsEntry, Production,
-    LogisticsStatus, DocumentStatus, PlannerData, UserProfile, Role, Module, Item
+    LogisticsStatus, DocumentStatus, PlannerData, UserProfile, Role, Module, Item, Division
 } from '../types.ts';
 
 // --- START: Firebase Setup ---
@@ -405,7 +405,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     }
                     if (doc.exists) {
                         isUpdatingFromFirestore.current = true;
-                        dispatch({ type: 'RESTORE_STATE', payload: doc.data() });
+                        
+                        // START: Data Cleanup Logic
+                        const firestoreData = doc.data();
+                        if (firestoreData.divisions && Array.isArray(firestoreData.divisions)) {
+                            const uniqueDivisions: Division[] = [];
+                            const seenIds = new Set<string>();
+                            let duplicatesFound = false;
+                            for (const division of firestoreData.divisions) {
+                                if (!seenIds.has(division.id)) {
+                                    uniqueDivisions.push(division);
+                                    seenIds.add(division.id);
+                                } else {
+                                    duplicatesFound = true;
+                                }
+                            }
+                            if (duplicatesFound) {
+                                firestoreData.divisions = uniqueDivisions;
+                                console.log("Removed duplicate divisions from the state on load.");
+                            }
+                        }
+                        // END: Data Cleanup Logic
+
+                        dispatch({ type: 'RESTORE_STATE', payload: firestoreData });
                         setSaveStatus('synced');
                     } else {
                         // If the document doesn't exist, create it with initial state
@@ -460,7 +482,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                                 }
                                 if (doc.exists) {
                                     isUpdatingFromFirestore.current = true;
-                                    dispatch({ type: 'RESTORE_STATE', payload: doc.data() });
+
+                                    // START: Data Cleanup Logic
+                                    const firestoreData = doc.data();
+                                    if (firestoreData.divisions && Array.isArray(firestoreData.divisions)) {
+                                        const uniqueDivisions: Division[] = [];
+                                        const seenIds = new Set<string>();
+                                        let duplicatesFound = false;
+                                        for (const division of firestoreData.divisions) {
+                                            if (!seenIds.has(division.id)) {
+                                                uniqueDivisions.push(division);
+                                                seenIds.add(division.id);
+                                            } else {
+                                                duplicatesFound = true;
+                                            }
+                                        }
+                                        if (duplicatesFound) {
+                                            firestoreData.divisions = uniqueDivisions;
+                                            console.log("Removed duplicate divisions from the state on load.");
+                                        }
+                                    }
+                                    // END: Data Cleanup Logic
+
+                                    dispatch({ type: 'RESTORE_STATE', payload: firestoreData });
                                     setSaveStatus('synced');
                                 } else {
                                     db.doc(FIRESTORE_DOC_PATH).set(initialState);

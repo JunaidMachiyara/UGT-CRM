@@ -231,7 +231,8 @@ const Dashboard: React.FC<DashboardProps> = ({ setModule }) => {
         const productionKg = state.productions.reduce((acc, p) => {
             const item = state.items.find(i => i.id === p.itemId);
             if (!item) return acc;
-            return acc + p.quantityProduced * (item.packingType === PackingType.Bales ? item.baleSize : 1);
+            const itemKg = item.packingType !== PackingType.Kg ? item.baleSize : 1;
+            return acc + p.quantityProduced * itemKg;
         }, 0);
         const salesKg = state.salesInvoices
             .filter(inv => inv.status !== InvoiceStatus.Unposted)
@@ -253,7 +254,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setModule }) => {
             productions.forEach(prod => {
                 const item = state.items.find(i => i.id === prod.itemId);
                 if (item) {
-                    const producedKg = prod.quantityProduced * (item.packingType === PackingType.Bales ? item.baleSize : 1);
+                    const producedKg = prod.quantityProduced * (item.packingType !== PackingType.Kg ? item.baleSize : 1);
                     productionByCat[item.categoryId] = (productionByCat[item.categoryId] || 0) + producedKg;
                     totalKg += producedKg;
                 }
@@ -364,7 +365,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setModule }) => {
             inv.items.forEach(item => {
                 const itemDetails = state.items.find(i => i.id === item.itemId);
                 if (itemDetails && item.rate !== undefined) {
-                    const totalKg = item.packingType === PackingType.Bales ? item.quantity * itemDetails.baleSize : item.quantity;
+                    const totalKg = item.packingType !== PackingType.Kg ? item.quantity * itemDetails.baleSize : item.quantity;
                     const itemValueUSD = totalKg * item.rate * (item.conversionRate || 1);
                     
                     invoiceValue += itemValueUSD;

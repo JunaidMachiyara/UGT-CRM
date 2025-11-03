@@ -43,9 +43,11 @@ const SectionProductionReport: React.FC = () => {
 
             if (item.packingType === PackingType.Bales) {
                 dataBySection[section.id].totalBales += prod.quantityProduced;
+            }
+            if (item.packingType !== PackingType.Kg) {
                 dataBySection[section.id].totalKg += prod.quantityProduced * item.baleSize;
-            } else { // Sacks or Kg
-                dataBySection[section.id].totalKg += prod.quantityProduced * (item.baleSize || 1);
+            } else {
+                dataBySection[section.id].totalKg += prod.quantityProduced;
             }
         });
 

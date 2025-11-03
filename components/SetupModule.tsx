@@ -394,19 +394,31 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
             return; 
         }
 
+        const batchActions: any[] = [];
+        // Create a mutable copy of the current state's entity array to track additions
+        const currentEntities = [...state[entity as keyof AppState] as any[]];
+
         parsedData.validRows.forEach((row) => {
             const dataWithId = { ...row };
+
             if (idGenerator) {
-                // @ts-ignore
-                dataWithId.id = idGenerator(state[entity]);
+                // Generate ID based on the *incrementally updated* local array
+                dataWithId.id = idGenerator(currentEntities);
             }
+
             if (entity === 'items') {
                 dataWithId.nextBaleNumber = (Number(dataWithId.openingStock) || 0) + 1;
             }
 
-            // @ts-ignore
-            dispatch({ type: 'ADD_ENTITY', payload: { entity, data: dataWithId } });
+            // Add the new item to our local array so the next ID is correct for the next iteration
+            currentEntities.push(dataWithId);
+
+            batchActions.push({ type: 'ADD_ENTITY', payload: { entity, data: dataWithId } });
         });
+
+        if (batchActions.length > 0) {
+            dispatch({ type: 'BATCH_UPDATE', payload: batchActions });
+        }
 
         setIsLoading(false);
         showNotification(`${parsedData.validRows.length} records imported successfully!`);
@@ -633,19 +645,16 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
         // Specific entity validation
         if (entityName === 'items') {
             const itemData = currentItem as unknown as Item;
-            if ((itemData.packingType === PackingType.Bales || itemData.packingType === PackingType.Sacks) && (!itemData.baleSize || itemData.baleSize <= 0)) {
-                setError('When Packing Type is "Bales" or "Sacks", the Packing Size must be a positive number.');
+            if (itemData.packingType !== PackingType.Kg && (!itemData.baleSize || itemData.baleSize <= 0)) {
+                setError('For this Packing Type, the Packing Size must be a positive number.');
                 return;
             }
         }
         
         if (entityName === 'originalTypes') {
             const originalTypeData = currentItem as unknown as OriginalType;
-            if (
-                (originalTypeData.packingType === PackingType.Bales || originalTypeData.packingType === PackingType.Sacks) &&
-                (!originalTypeData.packingSize || originalTypeData.packingSize <= 0)
-            ) {
-                setError('When Packing Type is "Bales" or "Sacks", the Packing Size must be a positive number.');
+            if (originalTypeData.packingType !== PackingType.Kg && (!originalTypeData.packingSize || originalTypeData.packingSize <= 0)) {
+                setError('For this Packing Type, the Packing Size must be a positive number.');
                 return;
             }
         }
@@ -882,7 +891,7 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
                     dispatch({ type: 'ADD_ENTITY', payload: { entity: 'productions', data: productionEntry } });
 
                     // 2. Create Journal Entries for the value
-                    const totalWeight = itemData.packingType === PackingType.Bales 
+                    const totalWeight = itemData.packingType !== PackingType.Kg
                         ? openingStock * (itemData.baleSize || 0)
                         : openingStock;
                     

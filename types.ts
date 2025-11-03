@@ -11,6 +11,8 @@ export enum PackingType {
     Bales = 'Bales',
     Sacks = 'Sacks',
     Kg = 'Kg',
+    Box = 'Box',
+    Bags = 'Bags',
 }
 
 export interface Customer {
