@@ -1,0 +1,337 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useData, auth, db, allPermissions, dataEntrySubModules, mainModules } from '../context/DataContext.tsx';
+import { Module, UserProfile, AppState } from '../types.ts';
+import { reportStructure } from './ReportsModule.tsx';
+
+const BackupRestoreManager: React.FC<{ setNotification: (n: any) => void; }> = ({ setNotification }) => {
+    const { state, dispatch } = useData();
+    const [isRestoring, setIsRestoring] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleDownloadBackup = () => {
+        try {
+            const stateJson = JSON.stringify(state, null, 2);
+            const blob = new Blob([stateJson], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const date = new Date().toISOString().split('T')[0];
+            link.download = `backup_${date}.json`;
+            link.href = url;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            setNotification({ msg: "Backup downloaded successfully.", type: 'success' });
+        } catch (error) {
+            console.error("Backup failed:", error);
+            setNotification({ msg: "Backup failed. See console for details.", type: 'error' });
+        }
+    };
+    
+    const handleRestoreClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setIsRestoring(true);
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+            try {
+                const text = e.target?.result as string;
+                const parsedData = JSON.parse(text) as AppState;
+
+                // Basic validation
+                if (typeof parsedData !== 'object' || !parsedData.customers || !parsedData.items) {
+                    throw new Error("Invalid backup file format.");
+                }
+                
+                const confirmation = window.confirm(
+                    "WARNING: You are about to overwrite ALL existing data with the content of this backup file. This action CANNOT be undone. Are you absolutely sure you want to proceed?"
+                );
+
+                if (confirmation) {
+                    dispatch({ type: 'RESTORE_STATE', payload: parsedData });
+                    setNotification({ msg: "Data restored successfully. The page will now reload.", type: 'success' });
+                    // Reload to ensure all components re-render with fresh state
+                    setTimeout(() => window.location.reload(), 2000);
+                }
+            } catch (error) {
+                console.error("Restore failed:", error);
+                setNotification({ msg: `Restore failed: ${error instanceof Error ? error.message : 'Unknown error'}.`, type: 'error' });
+            } finally {
+                setIsRestoring(false);
+                 if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
+            }
+        };
+        
+        reader.onerror = () => {
+             setNotification({ msg: "Failed to read the file.", type: 'error' });
+             setIsRestoring(false);
+        };
+
+        reader.readAsText(file);
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-2xl font-bold text-slate-700 mb-4">Data Backup & Restore</h2>
+            <div className="bg-amber-50 border-l-4 border-amber-400 p-4 mb-6" role="alert">
+                <h3 className="font-bold text-amber-800">Important Information</h3>
+                <ul className="list-disc list-inside text-sm text-amber-700 mt-2 space-y-1">
+                    <li><b>Download Backup:</b> Saves a complete copy of all your application data to your computer as a <code>.json</code> file.</li>
+                    <li><b>Upload & Restore:</b> Overwrites <b>ALL</b> current data in the application with the data from a selected backup file. This action cannot be undone.</li>
+                    <li className="font-semibold">It is strongly recommended to download a fresh backup before restoring from an old one.</li>
+                </ul>
+            </div>
+            <div className="flex space-x-4">
+                <button 
+                    onClick={handleDownloadBackup}
+                    className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    Download Backup
+                </button>
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} style={{display: 'none'}} accept=".json" />
+                <button 
+                    onClick={handleRestoreClick}
+                    disabled={isRestoring}
+                    className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition-colors disabled:bg-green-300 flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                    {isRestoring ? 'Restoring...' : 'Upload & Restore'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+
+const AdminModule: React.FC<{ setNotification: (n: any) => void; }> = ({ setNotification }) => {
+    const { state, userProfile } = useData();
+    const [users, setUsers] = useState<UserProfile[]>([]);
+    const [newUser, setNewUser] = useState({ name: '', email: '', password: '', permissions: [] as string[], isAdmin: false });
+    const [isCreatingUser, setIsCreatingUser] = useState(false);
+
+    useEffect(() => {
+        if (!db) return;
+        const unsubscribe = db.collection('users').onSnapshot((snapshot: any) => {
+            const userList: UserProfile[] = [];
+            snapshot.forEach((doc: any) => {
+                userList.push({ uid: doc.id, ...doc.data() } as UserProfile);
+            });
+            setUsers(userList.sort((a,b) => a.name.localeCompare(b.name)));
+        }, (error: any) => {
+            console.error("Error fetching users:", error);
+            setNotification({ msg: "Could not fetch user list.", type: 'error' });
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    const handleCreateUser = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newUser.email || !newUser.password || !newUser.name) {
+            setNotification({ msg: "Name, email, and password are required.", type: 'error' });
+            return;
+        }
+        if (newUser.password.length < 6) {
+            setNotification({ msg: "Password must be at least 6 characters long.", type: 'error' });
+            return;
+        }
+        setIsCreatingUser(true);
+        try {
+            // Step 1: Create user in Firebase Auth
+            const userCredential = await auth.createUserWithEmailAndPassword(newUser.email, newUser.password);
+            const user = userCredential.user;
+
+            if (user) {
+                // Step 2: Create user profile document in Firestore
+                const userProfileData = {
+                    name: newUser.name,
+                    email: newUser.email,
+                    isAdmin: newUser.isAdmin,
+                    permissions: newUser.isAdmin ? allPermissions : newUser.permissions
+                };
+                await db.collection('users').doc(user.uid).set(userProfileData);
+
+                setNotification({ msg: `User ${newUser.email} created successfully in Firebase and Firestore.`, type: 'success' });
+                setNewUser({ name: '', email: '', password: '', permissions: [], isAdmin: false });
+            } else {
+                throw new Error("Firebase user creation failed unexpectedly.");
+            }
+        } catch (error: any) {
+            console.error("Error creating user:", error);
+            const errorMessage = error.code === 'auth/email-already-in-use'
+                ? 'This email is already registered.'
+                : error.message;
+            setNotification({ msg: `Error: ${errorMessage}`, type: 'error' });
+        } finally {
+            setIsCreatingUser(false);
+        }
+    };
+
+    const handleAdminToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const isAdmin = e.target.checked;
+        setNewUser(prev => ({ ...prev, isAdmin, permissions: isAdmin ? allPermissions : [] }));
+    };
+    
+    const handlePermissionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { value, checked } = e.target;
+        setNewUser(prev => {
+            const newPermissions = checked 
+                ? [...prev.permissions, value]
+                : prev.permissions.filter(p => p !== value);
+            
+            // If a data entry sub-module is checked, ensure the parent 'dataEntry' is also checked
+            if (checked && value.startsWith('dataEntry/')) {
+                if (!newPermissions.includes('dataEntry')) {
+                    newPermissions.push('dataEntry');
+                }
+            }
+
+            return { ...prev, permissions: newPermissions };
+        });
+    };
+
+    const handleGroupToggle = (e: React.ChangeEvent<HTMLInputElement>, permissions: string[]) => {
+        const { checked } = e.target;
+        setNewUser(prev => {
+             const currentPermissions = new Set(prev.permissions);
+             if (checked) {
+                 permissions.forEach(p => currentPermissions.add(p));
+             } else {
+                 permissions.forEach(p => currentPermissions.delete(p));
+             }
+             return { ...prev, permissions: Array.from(currentPermissions) };
+        });
+    };
+    
+    return (
+        <div className="space-y-8">
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-2xl font-bold text-slate-700 mb-4">Create New User</h2>
+                <form onSubmit={handleCreateUser} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                        <div><label className="block text-sm font-medium text-slate-700">Name</label><input type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} required className="mt-1 w-full p-2 border border-slate-300 rounded-md"/></div>
+                        <div><label className="block text-sm font-medium text-slate-700">Email</label><input type="email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} required className="mt-1 w-full p-2 border border-slate-300 rounded-md"/></div>
+                        <div><label className="block text-sm font-medium text-slate-700">Password</label><input type="password" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required className="mt-1 w-full p-2 border border-slate-300 rounded-md"/></div>
+                    </div>
+                    
+                    <fieldset className="border rounded-md p-4 space-y-4">
+                        <legend className="font-semibold text-lg text-slate-800 px-2">Permissions</legend>
+                        <div className="flex items-center space-x-3 p-2 bg-blue-50 rounded-md border border-blue-200">
+                             <input id="isAdmin" type="checkbox" checked={newUser.isAdmin} onChange={handleAdminToggle} className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"/>
+                             <label htmlFor="isAdmin" className="font-semibold text-blue-800">Is Admin (Full Access)</label>
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                            {mainModules.filter(m => m !== 'reports' && m !== 'dataEntry' && m !== 'admin').map(module => (
+                                <div key={module}>
+                                    <label className="flex items-center space-x-2 capitalize text-slate-800">
+                                        <input type="checkbox" value={module} checked={newUser.permissions.includes(module)} onChange={handlePermissionChange} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
+                                        <span>{module}</span>
+                                    </label>
+                                </div>
+                            ))}
+                            {mainModules.includes('admin') && (
+                                <div key="admin">
+                                    <label className="flex items-center space-x-2 capitalize text-slate-800 font-semibold text-red-600">
+                                        <input type="checkbox" value="admin" checked={newUser.permissions.includes("admin")} onChange={handlePermissionChange} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-red-600 focus:ring-red-500" />
+                                        <span>Admin</span>
+                                    </label>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Data Entry Section */}
+                        <div className="col-span-full border rounded-md p-3 bg-slate-50">
+                            <div className="flex items-center">
+                                <input 
+                                    type="checkbox" 
+                                    id="dataEntry-group"
+                                    checked={dataEntrySubModules.map(sm => sm.key).every(p => newUser.permissions.includes(p))} 
+                                    ref={el => { if (el) { el.indeterminate = dataEntrySubModules.map(sm => sm.key).some(p => newUser.permissions.includes(p)) && !dataEntrySubModules.map(sm => sm.key).every(p => newUser.permissions.includes(p)); }}} 
+                                    onChange={(e) => handleGroupToggle(e, ['dataEntry', ...dataEntrySubModules.map(sm => sm.key)])} 
+                                    disabled={newUser.isAdmin} 
+                                    className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
+                                />
+                                <label htmlFor="dataEntry-group" className="ml-2 font-medium text-slate-700 capitalize">Data Entry</label>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 mt-2 pl-6">
+                                {dataEntrySubModules.map(subModule => (
+                                    <label key={subModule.key} className="flex items-center space-x-2 text-sm text-slate-800">
+                                        <input 
+                                            type="checkbox" 
+                                            value={subModule.key} 
+                                            checked={newUser.permissions.includes(subModule.key)} 
+                                            onChange={handlePermissionChange} 
+                                            disabled={newUser.isAdmin} 
+                                            className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" 
+                                        />
+                                        <span>{subModule.label}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Reports Section */}
+                        <div className="col-span-full border-t pt-4">
+                            <h3 className="font-semibold text-slate-800 mb-2">Reports Access</h3>
+                             <div className="space-y-4">
+                                {reportStructure.map(category => {
+                                    const categoryPermissions = category.subReports ? category.subReports.map(sr => sr.key) : [`${category.key}/main`];
+                                    const allInCategory = categoryPermissions.every(p => newUser.permissions.includes(p));
+                                    const someInCategory = categoryPermissions.some(p => newUser.permissions.includes(p));
+                                    
+                                    return (
+                                        <div key={category.key} className="p-3 bg-slate-50 rounded border">
+                                            <div className="flex items-center">
+                                                <input type="checkbox" checked={allInCategory} ref={el => { if (el) { el.indeterminate = someInCategory && !allInCategory; } }} onChange={(e) => handleGroupToggle(e, [`reports/${category.key}`, ...categoryPermissions])} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
+                                                <label className="ml-2 font-medium text-slate-700">{category.label}</label>
+                                            </div>
+                                             {category.subReports && <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 pl-6">
+                                                {category.subReports.map(report => (
+                                                    <label key={report.key} className="flex items-center space-x-2 text-sm text-slate-800">
+                                                        <input type="checkbox" value={report.key} checked={newUser.permissions.includes(report.key)} onChange={handlePermissionChange} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
+                                                        <span>{report.label}</span>
+                                                    </label>
+                                                ))}
+                                            </div>}
+                                            {!category.subReports && <div className="mt-2 pl-6">
+                                                 <label className="flex items-center space-x-2 text-sm text-slate-800">
+                                                    <input type="checkbox" value={`${category.key}/main`} checked={newUser.permissions.includes(`${category.key}/main`)} onChange={handlePermissionChange} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
+                                                    <span>Access Report</span>
+                                                 </label>
+                                            </div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <div className="flex justify-end pt-2">
+                        <button type="submit" disabled={isCreatingUser} className="py-2 px-6 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400">
+                            {isCreatingUser ? 'Creating...' : 'Create User'}
+                        </button>
+                    </div>
+                </form>
+                <p className="text-xs text-slate-500 mt-2">Note: This creates the user directly in Firebase Authentication and saves their profile in Firestore.</p>
+            </div>
+             <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-2xl font-bold text-slate-700 mb-4">Manage Users</h2>
+                 <div className="overflow-x-auto"><table className="w-full text-left table-auto"><thead><tr className="bg-slate-100"><th className="p-3 font-semibold text-slate-600">Name</th><th className="p-3 font-semibold text-slate-600">Email</th><th className="p-3 font-semibold text-slate-600">Role</th></tr></thead><tbody>{users.map(user => (<tr key={user.uid} className="border-b hover:bg-slate-50"><td className="p-3 text-slate-700">{user.name}</td><td className="p-3 text-slate-700">{user.email}</td><td className="p-3 text-slate-700 capitalize">{user.isAdmin ? 'Admin' : 'Custom'}</td></tr>))}</tbody></table></div>
+            </div>
+
+            {userProfile?.isAdmin && <BackupRestoreManager setNotification={setNotification} />}
+        </div>
+    );
+};
+
+export default AdminModule;
