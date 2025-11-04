@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useData } from '../context/DataContext.tsx';
 import { AppState, Customer, Supplier, Item, OriginalType, Division, Bank, PackingType, LoanAccount, CapitalAccount, InvestmentAccount, CashAccount, ExpenseAccount, Currency, SubDivision, FreightForwarder, ClearingAgent, CommissionAgent, Employee, JournalEntry, JournalEntryType, Production, Section, Module, Category, UserProfile, HRTask, HREnquiry, Vehicle, VehicleStatus, Account, Warehouse, AttendanceRecord, AttendanceStatus, OriginalPurchased } from '../types.ts';
-import { generateCustomerId, generateSupplierId, generateBankId, generateOriginalTypeId, generateDivisionId, generateLoanAccountId, generateCapitalAccountId, generateInvestmentAccountId, generateCashAccountId, generateExpenseAccountId, generateSubDivisionId, generateFreightForwarderId, generateClearingAgentId, generateCommissionAgentId, generateEmployeeId, generateSectionId, generateCategoryId, generateVehicleId, generateWarehouseId } from '../utils/idGenerator.ts';
+import { generateCustomerId, generateSupplierId, generateBankId, generateOriginalTypeId, generateDivisionId, generateLoanAccountId, generateCapitalAccountId, generateInvestmentAccountId, generateCashAccountId, generateExpenseAccountId, generateSubDivisionId, generateFreightForwarderId, generateClearingAgentId, generateCommissionAgentId, generateEmployeeId, generateSectionId, generateCategoryId, generateVehicleId, generateWarehouseId, generateItemId } from '../utils/idGenerator.ts';
 import Modal from './ui/Modal.tsx';
 import AttendanceRegister from './AttendanceRegister.tsx';
 import SalaryCalculator from './SalaryCalculator.tsx';
@@ -40,19 +40,16 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
 
     const importConfig = useMemo(() => ({
         items: {
-            headers: ['Item Code (Required)', 'Item Name (Required)', 'Category ID (Required)', 'Section ID', 'Packing Type (Bales/Sacks/Kg)', 'Packing Size (if not Kg)', 'Packing Color', 'Avg Production Price (Required)', 'Avg Sales Price', 'Demand Factor (1-10)', 'Opening Stock'],
+            headers: ['Item Code (Optional)', 'Item Name (Required)', 'Category ID (Required)', 'Section ID', 'Packing Type (Bales/Sacks/Kg)', 'Packing Size (if not Kg)', 'Packing Color', 'Avg Production Price (Required)', 'Avg Sales Price', 'Demand Factor (1-10)', 'Opening Stock'],
+            idGenerator: generateItemId,
             entity: 'items' as const,
             keys: ['id', 'name', 'categoryId', 'sectionId', 'packingType', 'baleSize', 'packingColor', 'avgProductionPrice', 'avgSalesPrice', 'demandFactor', 'openingStock'],
             uniqueIdentifier: 'id',
             validate: (row: any) => {
-                if (!row.id) return 'Item Code is required.';
-                if (state.items.some(item => item.id === row.id)) return `Item Code '${row.id}' already exists.`;
-                if (!row.name) return 'Item Name is required.';
-                if (!row.categoryId) return 'Category ID is required.';
+                // This validation now only checks for foreign keys and data types, as uniqueness is handled in the processFile function.
                 if (!state.categories.some(cat => cat.id === row.categoryId)) return `Category ID '${row.categoryId}' not found.`;
                 if (row.sectionId && !state.sections.some(sec => sec.id === row.sectionId)) return `Section ID '${row.sectionId}' not found.`;
                 if (!row.packingType || !Object.values(PackingType).includes(row.packingType as PackingType)) return `Invalid Packing Type. Must be one of: ${Object.values(PackingType).join(', ')}.`;
-                if (!row.avgProductionPrice || isNaN(Number(row.avgProductionPrice))) return 'Avg Production Price is required and must be a number.';
                 return null;
             },
             transform: (row: any) => ({ ...row, baleSize: Number(row.baleSize) || 0, avgProductionPrice: Number(row.avgProductionPrice), avgSalesPrice: Number(row.avgSalesPrice) || 0, demandFactor: Number(row.demandFactor) || 5, openingStock: Number(row.openingStock) || 0 }),
@@ -301,45 +298,115 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
                 const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
                 if (lines.length < 2) { showNotification("File needs a header and at least one data row."); setIsLoading(false); return; }
 
-                const headerLine = lines[0];
                 const rows = lines.slice(1);
-                const { keys, validate, transform, uniqueIdentifier } = config;
+                const { keys, validate, transform } = config;
 
                 const validRows: any[] = [];
                 const invalidRows: { rowData: any, error: string, rowIndex: number }[] = [];
-                const allUniqueIdentifiersInFile = new Set<string>();
+                
+                if (entityName === 'items') {
+                    const uniqueCodesInFile = new Set<string>();
+                    const uniqueNamesInFile = new Set<string>();
 
-                for (let i = 0; i < rows.length; i++) {
-                    const row = rows[i];
-                    if (!row.trim()) continue;
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row.trim()) continue;
+                        
+                        const values = parseCsvRow(row);
+                        if (values.length !== config.headers.length) {
+                            invalidRows.push({ rowData: { raw: row }, error: `Column count mismatch. Expected ${config.headers.length}, found ${values.length}.`, rowIndex: i + 2 });
+                            continue;
+                        }
 
-                    const values = parseCsvRow(row);
-                    if (values.length !== config.headers.length) {
-                        invalidRows.push({ rowData: { raw: row }, error: `Column count mismatch. Expected ${config.headers.length}, found ${values.length}.`, rowIndex: i + 2 });
-                        continue;
+                        const rowData: any = {};
+                        keys.forEach((key, index) => { rowData[key] = values[index] || ''; });
+                        
+                        let error: string | null = null;
+                        const itemCode = rowData.id?.trim();
+                        const itemName = rowData.name?.trim();
+
+                        // --- Validation Steps ---
+                        // 1. Required fields check
+                        if (!itemName) {
+                            error = 'Item Name is required.';
+                        } else if (!rowData.categoryId) {
+                            error = 'Category ID is required.';
+                        } else if (!rowData.avgProductionPrice || isNaN(Number(rowData.avgProductionPrice))) {
+                            error = 'Avg Production Price is required and must be a number.';
+                        }
+
+                        // 2. Uniqueness checks
+                        if (!error) {
+                            if (itemCode) { // Code provided
+                                const codeLower = itemCode.toLowerCase();
+                                if (state.items.some(item => item.id.toLowerCase() === codeLower)) {
+                                    error = `Item Code '${itemCode}' already exists in the system.`;
+                                } else if (uniqueCodesInFile.has(codeLower)) {
+                                    error = `Duplicate Item Code '${itemCode}' found in this file.`;
+                                } else {
+                                    uniqueCodesInFile.add(codeLower);
+                                }
+                            }
+                        }
+                        if (!error && itemName) { // Item Name must always be unique
+                            const nameLower = itemName.toLowerCase();
+                            if (state.items.some(item => item.name.toLowerCase() === nameLower)) {
+                                 error = `Item Name '${itemName}' already exists in the system.`;
+                            } else if (uniqueNamesInFile.has(nameLower)) {
+                                error = `Duplicate Item Name '${itemName}' found in this file.`;
+                            } else {
+                                uniqueNamesInFile.add(nameLower);
+                            }
+                        }
+
+                        // 3. Other field validations (foreign keys, etc.)
+                        if (!error) {
+                            error = validate(rowData);
+                        }
+
+                        // --- Final Decision ---
+                        if (error) {
+                            invalidRows.push({ rowData, error, rowIndex: i + 2 });
+                        } else {
+                            validRows.push(transform(rowData));
+                        }
                     }
+                } else {
+                    // Keep old, simpler logic for other entities
+                    const uniqueIdentifier = config.uniqueIdentifier;
+                    const allUniqueIdentifiersInFile = new Set<string>();
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row.trim()) continue;
 
-                    const rowData: any = {};
-                    keys.forEach((key, index) => { rowData[key] = values[index] || ''; });
+                        const values = parseCsvRow(row);
+                        if (values.length !== config.headers.length) {
+                            invalidRows.push({ rowData: { raw: row }, error: `Column count mismatch. Expected ${config.headers.length}, found ${values.length}.`, rowIndex: i + 2 });
+                            continue;
+                        }
 
-                    const error = validate(rowData);
-                    if (error) {
-                        invalidRows.push({ rowData, error, rowIndex: i + 2 });
-                        continue;
-                    }
-
-                    let identifierValue: string;
-                    if (entityName === 'originalStock') {
-                        identifierValue = `${rowData.supplierId}-${rowData.originalTypeId}-${rowData.batchNumber}`;
-                    } else {
-                        identifierValue = rowData[uniqueIdentifier]?.toLowerCase();
-                    }
-                    
-                    if (allUniqueIdentifiersInFile.has(identifierValue)) {
-                        invalidRows.push({ rowData, error: `Duplicate identifier in file: '${identifierValue}'.`, rowIndex: i + 2 });
-                    } else {
-                        if (identifierValue) allUniqueIdentifiersInFile.add(identifierValue);
-                        validRows.push(transform(rowData));
+                        const rowData: any = {};
+                        keys.forEach((key, index) => { rowData[key] = values[index] || ''; });
+                        
+                        const validationError = validate(rowData);
+                        if (validationError) {
+                            invalidRows.push({ rowData, error: validationError, rowIndex: i + 2 });
+                            continue;
+                        }
+                        
+                        const identifierValue = (entityName === 'originalStock'
+                            ? `${rowData.supplierId}-${rowData.originalTypeId}-${rowData.batchNumber}`
+                            : rowData[uniqueIdentifier]
+                        )?.toLowerCase();
+                        
+                        if (identifierValue && allUniqueIdentifiersInFile.has(identifierValue)) {
+                            invalidRows.push({ rowData, error: `Duplicate identifier in file: '${rowData[uniqueIdentifier]}'.`, rowIndex: i + 2 });
+                        } else {
+                            if (typeof identifierValue === 'string') {
+                                allUniqueIdentifiersInFile.add(identifierValue);
+                            }
+                            validRows.push(transform(rowData));
+                        }
                     }
                 }
                 setParsedData({ validRows, invalidRows });
@@ -395,25 +462,113 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
         }
 
         const batchActions: any[] = [];
-        // Create a mutable copy of the current state's entity array to track additions
         const currentEntities = [...state[entity as keyof AppState] as any[]];
+        let nextVoucherNumber = state.nextJournalVoucherNumber;
 
         parsedData.validRows.forEach((row) => {
             const dataWithId = { ...row };
 
-            if (idGenerator) {
-                // Generate ID based on the *incrementally updated* local array
-                dataWithId.id = idGenerator(currentEntities);
-            }
-
             if (entity === 'items') {
+                if (!dataWithId.id && idGenerator) { // Only generate if ID is not provided
+                    dataWithId.id = idGenerator(currentEntities as any);
+                }
                 dataWithId.nextBaleNumber = (Number(dataWithId.openingStock) || 0) + 1;
+            } else {
+                if (idGenerator) {
+                    dataWithId.id = idGenerator(currentEntities as any);
+                }
             }
-
-            // Add the new item to our local array so the next ID is correct for the next iteration
+            
             currentEntities.push(dataWithId);
-
             batchActions.push({ type: 'ADD_ENTITY', payload: { entity, data: dataWithId } });
+
+            const newBalance = parseFloat(String(dataWithId.startingBalance || '0'));
+            if (newBalance !== 0 && !isNaN(newBalance)) {
+                const defaultConversionRates: { [key: string]: number } = {
+                    [Currency.AustralianDollar]: 0.66, [Currency.Pound]: 1.34, [Currency.AED]: 0.2725,
+                    [Currency.SaudiRiyal]: 0.27, [Currency.Euro]: 1.17, [Currency.Dollar]: 1,
+                };
+
+                let newBalanceInUSD = newBalance;
+                let originalAmountData: { amount: number; currency: Currency } | undefined;
+
+                const relevantEntityTypes = ['customers', 'suppliers', 'cashAccounts', 'banks', 'commissionAgents', 'freightForwarders', 'clearingAgents', 'employees'];
+                if (relevantEntityTypes.includes(entityName)) {
+                    const newCurrency = dataWithId.currency || dataWithId.defaultCurrency || Currency.Dollar;
+                    const newConversionRate = defaultConversionRates[newCurrency] || 1;
+                    newBalanceInUSD = newBalance * newConversionRate;
+
+                    if (newCurrency && newCurrency !== Currency.Dollar) {
+                        originalAmountData = { amount: newBalance, currency: newCurrency };
+                    }
+                }
+
+                const voucherId = `JV-${String(nextVoucherNumber).padStart(3, '0')}`;
+                const date = new Date().toISOString().split('T')[0];
+                const displayName = dataWithId.name;
+                const description = `Opening Balance for ${displayName} (${dataWithId.id})`;
+
+                let debitEntry: JournalEntry | null = null;
+                let creditEntry: JournalEntry | null = null;
+                let entityType: 'customer' | 'supplier' | 'commissionAgent' | 'employee' | 'freightForwarder' | 'clearingAgent' | undefined;
+
+                const isPositive = newBalance > 0;
+                const amount = Math.abs(newBalanceInUSD);
+
+                switch(entityName) {
+                    case 'customers':
+                        entityType = 'customer';
+                        if (isPositive) { // Customer owes us (Debit AR)
+                            debitEntry = { id: `je-d-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'AR-001', debit: amount, credit: 0, description, entityId: dataWithId.id, entityType, originalAmount: originalAmountData };
+                            creditEntry = { id: `je-c-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'CAP-002', debit: 0, credit: amount, description };
+                        } else { // We owe customer (Credit AR)
+                            debitEntry = { id: `je-d-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'CAP-002', debit: amount, credit: 0, description };
+                            creditEntry = { id: `je-c-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'AR-001', debit: 0, credit: amount, description, entityId: dataWithId.id, entityType, originalAmount: originalAmountData };
+                        }
+                        break;
+                    case 'suppliers':
+                    case 'commissionAgents':
+                    case 'freightForwarders':
+                    case 'clearingAgents':
+                        if (entityName === 'suppliers') entityType = 'supplier';
+                        if (entityName === 'commissionAgents') entityType = 'commissionAgent';
+                        if (entityName === 'freightForwarders') entityType = 'freightForwarder';
+                        if (entityName === 'clearingAgents') entityType = 'clearingAgent';
+        
+                        if (isPositive) { // We owe them (Credit AP)
+                            debitEntry = { id: `je-d-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'CAP-002', debit: amount, credit: 0, description };
+                            creditEntry = { id: `je-c-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'AP-001', debit: 0, credit: amount, description, entityId: dataWithId.id, entityType, originalAmount: originalAmountData };
+                        } else { // They owe us (Debit AP)
+                            debitEntry = { id: `je-d-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'AP-001', debit: amount, credit: 0, description, entityId: dataWithId.id, entityType, originalAmount: originalAmountData };
+                            creditEntry = { id: `je-c-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'CAP-002', debit: 0, credit: amount, description };
+                        }
+                        break;
+                    case 'loanAccounts':
+                        if (isPositive) { // Liability has a credit balance
+                             debitEntry = { id: `je-d-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'CAP-002', debit: amount, credit: 0, description };
+                             creditEntry = { id: `je-c-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: dataWithId.id, debit: 0, credit: amount, description, originalAmount: originalAmountData };
+                        } else { // Liability has a debit balance
+                            debitEntry = { id: `je-d-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: dataWithId.id, debit: amount, credit: 0, description, originalAmount: originalAmountData };
+                            creditEntry = { id: `je-c-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'CAP-002', debit: 0, credit: amount, description };
+                        }
+                        break;
+                    case 'expenseAccounts':
+                        if (isPositive) { // Asset has a debit balance
+                            debitEntry = { id: `je-d-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: dataWithId.id, debit: amount, credit: 0, description, originalAmount: originalAmountData };
+                            creditEntry = { id: `je-c-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'CAP-002', debit: 0, credit: amount, description };
+                        } else { // Asset has a credit balance (e.g. overdraft)
+                            debitEntry = { id: `je-d-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'CAP-002', debit: amount, credit: 0, description };
+                            creditEntry = { id: `je-c-ob-${dataWithId.id}`, voucherId, date, entryType: JournalEntryType.Journal, account: dataWithId.id, debit: 0, credit: amount, description, originalAmount: originalAmountData };
+                        }
+                        break;
+                }
+        
+                if (debitEntry && creditEntry) {
+                    batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: debitEntry } });
+                    batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: creditEntry } });
+                    nextVoucherNumber++;
+                }
+            }
         });
 
         if (batchActions.length > 0) {
@@ -474,7 +629,7 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
                             <div className="max-h-60 overflow-y-auto border rounded-md mt-2">
                                 <table className="w-full text-left table-auto text-xs">
                                     <thead className="bg-red-50 sticky top-0"><tr className="border-b border-red-200"><th className="p-2 font-semibold text-red-800">Row #</th><th className="p-2 font-semibold text-red-800">Identifier / Raw Data</th><th className="p-2 font-semibold text-red-800">Error</th></tr></thead>
-                                    <tbody>{invalidRows.map((row, i) => (<tr key={i} className="border-b border-red-100"><td className="p-2">{row.rowIndex}</td><td className="p-2 font-mono text-red-900">{row.rowData[config.uniqueIdentifier] || row.rowData.raw || 'N/A'}</td><td className="p-2">{row.error}</td></tr>))}</tbody>
+                                    <tbody>{invalidRows.map((row, i) => (<tr key={i} className="border-b border-red-100"><td className="p-2">{row.rowIndex}</td><td className="p-2 font-mono text-red-900">{row.rowData[config.uniqueIdentifier] || row.rowData.name || row.rowData.raw || 'N/A'}</td><td className="p-2">{row.error}</td></tr>))}</tbody>
                                 </table>
                             </div>
                         ) : <p className="text-sm text-slate-500 mt-1">No invalid rows found. Great!</p>}
@@ -631,10 +786,22 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
         if (!currentItem) return;
         setError(null);
 
+        // Create a new object and parse all number fields from string to number
+        const itemToSave = { ...currentItem };
+        for (const field of fields) {
+            if (field.type === 'number') {
+                const key = field.key as keyof typeof itemToSave;
+                const value = itemToSave[key];
+                const parsed = parseFloat(String(value));
+                // Use undefined for empty/invalid so it gets stripped or handled by downstream logic (e.g. `|| 0`)
+                (itemToSave[key] as any) = isNaN(parsed) ? undefined : parsed;
+            }
+        }
+
         // Generic required field validation
         for (const field of fields) {
             if (field.required) {
-                const value = currentItem[field.key as keyof T];
+                const value = itemToSave[field.key as keyof T];
                 if (value === null || value === undefined || value === '') {
                     setError(`${field.label} is required.`);
                     return;
@@ -644,22 +811,22 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
         
         // Specific entity validation
         if (entityName === 'items') {
-            const itemData = currentItem as unknown as Item;
+            const itemData = itemToSave as unknown as Item;
             if (itemData.packingType !== PackingType.Kg && (!itemData.baleSize || itemData.baleSize <= 0)) {
-                setError('For this Packing Type, the Packing Size must be a positive number.');
+                setError(`For ${itemData.packingType}, the Packing Size must be a positive number.`);
                 return;
             }
         }
         
         if (entityName === 'originalTypes') {
-            const originalTypeData = currentItem as unknown as OriginalType;
+            const originalTypeData = itemToSave as unknown as OriginalType;
             if (originalTypeData.packingType !== PackingType.Kg && (!originalTypeData.packingSize || originalTypeData.packingSize <= 0)) {
-                setError('For this Packing Type, the Packing Size must be a positive number.');
+                setError(`For ${originalTypeData.packingType}, the Packing Size must be a positive number.`);
                 return;
             }
         }
 
-        const { expenseType, expenseAmount, responsibleEmployeeId, ...entityData } = currentItem as any;
+        const { expenseType, expenseAmount, responsibleEmployeeId, ...entityData } = itemToSave as any;
         
         if (entityName === 'vehicles' && Number(expenseAmount) > 0 && responsibleEmployeeId) {
             const amountNum = Number(expenseAmount);
@@ -713,8 +880,13 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
             oldItem: T | undefined,
             isNew: boolean
         ) => {
-            const oldBalance = oldItem?.startingBalance || 0;
-            const newBalance = Number(item.startingBalance) || 0;
+            const oldBalance = parseFloat(String(oldItem?.startingBalance || '0'));
+            const newBalance = parseFloat(String(item.startingBalance || '0'));
+
+            if (isNaN(oldBalance) || isNaN(newBalance)) {
+                console.error("Invalid balance value detected during save.");
+                return;
+            }
 
             const defaultConversionRates: { [key: string]: number } = {
                 [Currency.AustralianDollar]: 0.66,
@@ -729,7 +901,7 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
             let newBalanceInUSD = newBalance;
             let originalAmountData: { amount: number; currency: Currency } | undefined;
     
-            const relevantEntityTypes = ['customers', 'suppliers', 'cashAccounts', 'banks', 'commissionAgents', 'freightForwarders', 'clearingAgents'];
+            const relevantEntityTypes = ['customers', 'suppliers', 'cashAccounts', 'banks', 'commissionAgents', 'freightForwarders', 'clearingAgents', 'employees'];
             if (relevantEntityTypes.includes(entityName)) {
                 const newAccount = item as T & { currency?: Currency, defaultCurrency?: Currency };
                 const oldAccount = oldItem as T & { currency?: Currency, defaultCurrency?: Currency } | undefined;
@@ -847,18 +1019,23 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
             dispatch({ type: 'UPDATE_ENTITY', payload: { entity: entityName, data: entityData as T } });
 
         } else {
-            if (entityName === 'items' || entityName === 'vehicles') {
-                const keyToCheck = entityName === 'items' ? 'id' : 'plateNumber';
-                const currentId = (entityData as any)[keyToCheck];
-                if (data.some(d => (d as any)[keyToCheck] === currentId)) {
-                    setError(`An item with this ${keyToCheck === 'id' ? 'code' : 'plate number'} already exists. Please use a unique value.`);
+            if (entityName === 'items') {
+                const currentName = (entityData as any).name?.toLowerCase();
+                if (currentName && data.some(d => (d as any).name?.toLowerCase() === currentName)) {
+                    setError(`An item with this name already exists.`);
+                    return;
+                }
+            } else if (entityName === 'vehicles') {
+                const currentId = (entityData as any)['plateNumber'];
+                if (currentId && data.some(d => (d as any)['plateNumber'] === currentId)) {
+                    setError(`An item with this plate number already exists. Please use a unique value.`);
                     return;
                 }
             }
             
             const newItem = { ...entityData };
             
-            if (idGenerator && !newItem.id) {
+            if (idGenerator) {
                 newItem.id = idGenerator(data as any);
             }
             
@@ -1010,21 +1187,27 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
         if (!currentItem) return;
         const { name, value } = e.target;
         const fieldConfig = fields.find(f => f.key as string === name);
-        const isNumber = fieldConfig?.type === 'number';
+        
+        let finalValue: any = value;
 
-        let parsedValue: any = value;
-
-        if (value === 'true') {
-            parsedValue = true;
-        } else if (value === 'false') {
-            parsedValue = false;
-        } else if (isNumber) {
-            parsedValue = value === '' ? '' : (parseFloat(value) || 0);
+        if (fieldConfig?.type === 'number') {
+            // Allow empty string, negative sign, and valid partial/full decimal numbers.
+            // This prevents invalid characters from being entered.
+            if (value !== '' && value !== '-' && !/^-?\d*\.?\d*$/.test(value)) {
+                return; // Don't update state for invalid input
+            }
+        } else {
+            // Keep existing boolean parsing for other types
+            if (value === 'true') {
+                finalValue = true;
+            } else if (value === 'false') {
+                finalValue = false;
+            }
         }
 
         let updatedValues = {
             ...currentItem,
-            [name]: parsedValue,
+            [name]: finalValue,
         };
 
         if (name === 'divisionId') {
@@ -1042,13 +1225,13 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
         }
 
         if (entityName === 'employees') {
-             if (name === 'onDuty' && parsedValue === true) {
+             if (name === 'onDuty' && finalValue === true) {
                 updatedValues.offDutyStatus = undefined;
                 updatedValues.holidayStartDate = undefined;
                 updatedValues.holidayEndDate = undefined;
             }
 
-            if (name === 'offDutyStatus' && parsedValue !== 'Holidays') {
+            if (name === 'offDutyStatus' && finalValue !== 'Holidays') {
                  updatedValues.holidayStartDate = undefined;
                  updatedValues.holidayEndDate = undefined;
             }
@@ -1207,6 +1390,7 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
                                                 onChange={handleChange}
                                                 disabled={isDisabled}
                                                 className="w-full p-2 rounded-md"
+                                                step={field.type === 'number' ? 'any' : undefined}
                                             />
                                         )}
                                     </div>
@@ -1269,7 +1453,7 @@ const SetupModule: React.FC<SetupModuleProps> = ({ userProfile, isModalMode = fa
             { title: 'Clearing Agents', entityName: 'clearingAgents', data: state.clearingAgents, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Agent Name' }, { key: 'contact', header: 'Contact' }, { key: 'defaultCurrency', header: 'Currency' }], fields: [{ key: 'name', label: 'Agent Name', type: 'text', required: true }, { key: 'contact', label: 'Contact', type: 'text' }, { key: 'address', label: 'Address', type: 'text' }, { key: 'defaultCurrency', label: 'Default Currency', type: 'select', options: Object.values(Currency).map(c => ({ value: c, label: c })) }, { key: 'startingBalance', label: 'Opening Balance', type: 'number' }], idGenerator: generateClearingAgentId, initialState: { name: '', contact: '', address: '', defaultCurrency: Currency.Dollar } as any, icon: Icons.truck },
         ],
         inventory: [
-            { title: 'Items', entityName: 'items', data: state.items, columns: [{ key: 'id', header: 'Code' }, { key: 'name', header: 'Name' }, { key: 'categoryId', header: 'Category', render: (item: Item) => state.categories.find(c => c.id === item.categoryId)?.name || '' }, { key: 'avgProductionPrice', header: 'Avg Prod Price' }, { key: 'avgSalesPrice', header: 'Avg Sales Price' }], fields: [{ key: 'id', label: 'Item Code', type: 'text', required: true }, { key: 'name', label: 'Name', type: 'text', required: true }, { key: 'categoryId', label: 'Category', type: 'select', options: state.categories.map(c => ({ value: c.id, label: c.name })), required: true }, { key: 'sectionId', label: 'Section', type: 'select', options: state.sections.map(s => ({ value: s.id, label: s.name })) }, { key: 'packingType', label: 'Packing Type', type: 'select', options: Object.values(PackingType).map(pt => ({ value: pt, label: pt })), required: true }, { key: 'baleSize', label: 'Packing Size (Kg/Bale or Kg/Sack)', type: 'number' }, { key: 'packingColor', label: 'Packing Color', type: 'text' }, { key: 'avgProductionPrice', label: 'Average Production Price ($/Kg)', type: 'number', required: true }, { key: 'avgSalesPrice', label: 'Average Sales Price ($/Kg)', type: 'number' }, { key: 'demandFactor', label: 'Demand Factor (1-10)', type: 'number' }, { key: 'openingStock', label: 'Opening Stock (Units)', type: 'number' }], idGenerator: undefined, initialState: { name: '', categoryId: '', packingType: PackingType.Bales, baleSize: 0, packingColor: '', avgProductionPrice: 0, avgSalesPrice: 0, demandFactor: 5 } as any, icon: Icons.cube },
+            { title: 'Items', entityName: 'items', data: state.items, columns: [{ key: 'id', header: 'Code' }, { key: 'name', header: 'Name' }, { key: 'categoryId', header: 'Category', render: (item: Item) => state.categories.find(c => c.id === item.categoryId)?.name || '' }, { key: 'avgProductionPrice', header: 'Avg Prod Price' }, { key: 'avgSalesPrice', header: 'Avg Sales Price' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }, { key: 'categoryId', label: 'Category', type: 'select', options: state.categories.map(c => ({ value: c.id, label: c.name })), required: true }, { key: 'sectionId', label: 'Section', type: 'select', options: state.sections.map(s => ({ value: s.id, label: s.name })) }, { key: 'packingType', label: 'Packing Type', type: 'select', options: Object.values(PackingType).map(pt => ({ value: pt, label: pt })), required: true }, { key: 'baleSize', label: 'Packing Size (Kg/Unit)', type: 'number' }, { key: 'packingColor', label: 'Packing Color', type: 'text' }, { key: 'avgProductionPrice', label: 'Average Production Price ($/Kg)', type: 'number', required: true }, { key: 'avgSalesPrice', label: 'Average Sales Price ($/Kg)', type: 'number' }, { key: 'demandFactor', label: 'Demand Factor (1-10)', type: 'number' }, { key: 'openingStock', label: 'Opening Stock (Units)', type: 'number' }], idGenerator: generateItemId, initialState: { name: '', categoryId: '', packingType: PackingType.Bales, baleSize: 0, packingColor: '', avgProductionPrice: 0, avgSalesPrice: 0, demandFactor: 5 } as any, icon: Icons.cube },
             { title: 'Original Types', entityName: 'originalTypes', data: state.originalTypes, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }, { key: 'packingType', header: 'Packing Type' }, { key: 'packingSize', header: 'Size (Kg)' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }, { key: 'packingType', label: 'Packing Type', type: 'select', options: Object.values(PackingType).map(pt => ({ value: pt, label: pt })), required: true }, { key: 'packingSize', label: 'Packing Size (Kg)', type: 'number' }], idGenerator: generateOriginalTypeId, initialState: { name: '', packingType: PackingType.Bales, packingSize: 0 } as any, icon: Icons.cube },
             { title: 'Categories', entityName: 'categories', data: state.categories, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }], idGenerator: generateCategoryId, initialState: { name: '' } as any, icon: Icons.tag },
             { title: 'Sections', entityName: 'sections', data: state.sections, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }], idGenerator: generateSectionId, initialState: { name: '' } as any, icon: Icons['view-grid'] },
