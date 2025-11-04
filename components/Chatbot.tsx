@@ -281,6 +281,23 @@ const Chatbot: React.FC<ChatbotProps> = ({ onNavigate }) => {
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, isLoading]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.stopPropagation(); // Prevent App's global listener
+                setIsOpen(false);
+            }
+        };
+
+        // Use capture phase to intercept the event early
+        document.addEventListener('keydown', handleKeyDown, true);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown, true);
+        };
+    }, [isOpen]);
     
     // --- Data Retrieval & Analysis Functions ---
     const getItemStock = ({ itemName, itemId }: { itemName?: string, itemId?: string }): { stock: number } | { error: string } => {
@@ -393,7 +410,7 @@ const Chatbot: React.FC<ChatbotProps> = ({ onNavigate }) => {
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!input.trim() || isLoading) return;
-
+    
         const userMessageText = input;
         const userMessage: ChatMessage = { role: 'user', text: userMessageText };
         setMessages(prev => [...prev, userMessage]);
@@ -401,13 +418,29 @@ const Chatbot: React.FC<ChatbotProps> = ({ onNavigate }) => {
         setIsLoading(true);
         
         historyRef.current.push({ role: 'user', parts: [{ text: userMessageText }] });
-
+    
         try {
             const response = await callGeminiProxy(historyRef.current);
+    
+            // Manually parse the plain JSON response from the proxy
+            const candidate = response.candidates?.[0];
+            const content = candidate?.content;
             
-            historyRef.current.push(response.candidates![0].content);
-            const functionCall = response.functionCalls?.[0];
-
+            if (!content || !content.parts || content.parts.length === 0) {
+                const blockReason = candidate?.finishReason;
+                let errorMessage = "Sorry, I received an empty response. Can you try rephrasing?";
+                if (blockReason === 'SAFETY') {
+                    errorMessage = `My response was blocked for safety reasons.`;
+                } else if (blockReason) {
+                    errorMessage = `My response was blocked. Reason: ${blockReason}.`;
+                }
+                throw new Error(errorMessage);
+            }
+            
+            historyRef.current.push(content);
+            const firstPart = content.parts[0];
+            const functionCall = firstPart.functionCall;
+    
             if (functionCall) {
                 let functionResult: any;
                 switch (functionCall.name) {
@@ -421,7 +454,7 @@ const Chatbot: React.FC<ChatbotProps> = ({ onNavigate }) => {
                         setTimeout(() => { onNavigate(module as Module, subView as string); setIsOpen(false); }, 1500);
                         setIsLoading(false); // End loading early for navigation
                         return;
-
+    
                     case 'getItemStock':
                         functionResult = getItemStock(functionCall.args as { itemName?: string, itemId?: string });
                         break;
@@ -448,22 +481,32 @@ const Chatbot: React.FC<ChatbotProps> = ({ onNavigate }) => {
                     role: 'user',
                     parts: [{ functionResponse: { name: functionCall.name, response: functionResult } }]
                 });
-
+    
                 const finalResponse = await callGeminiProxy(historyRef.current);
-
-                const finalBotMessageText = finalResponse.text || "Here is the data you requested.";
+    
+                const finalCandidate = finalResponse.candidates?.[0];
+                const finalContent = finalCandidate?.content;
+                const finalFirstPart = finalContent?.parts?.[0];
+    
+                if (!finalContent || !finalFirstPart?.text) {
+                     throw new Error("I was able to call the function, but I couldn't generate a final summary.");
+                }
+    
+                const finalBotMessageText = finalFirstPart.text;
                 setMessages(prev => [...prev, { role: 'model', text: finalBotMessageText }]);
-                historyRef.current.push({ role: 'model', parts: [{ text: finalBotMessageText }] });
-
+                historyRef.current.push(finalContent);
+    
             } else {
-                const botMessageText = response.text || "I'm not sure how to help with that. Can you try rephrasing?";
+                const botMessageText = firstPart.text;
+                if (!botMessageText) {
+                    throw new Error("I received a response, but it didn't contain any text. Please try again.");
+                }
                 setMessages(prev => [...prev, { role: 'model', text: botMessageText }]);
-                historyRef.current.push({ role: 'model', parts: [{ text: botMessageText }] });
             }
-
+    
         } catch (error: any) {
             console.error("Chatbot error:", error);
-            const errorMessage: ChatMessage = { role: 'model', text: `Sorry, there was an error processing your request. ${error instanceof Error ? error.message : String(error)}` };
+            const errorMessage: ChatMessage = { role: 'model', text: `Sorry, there was an error. ${error instanceof Error ? error.message : 'Please try again.'}` };
             setMessages(prev => [...prev, errorMessage]);
         } finally {
             setIsLoading(false);

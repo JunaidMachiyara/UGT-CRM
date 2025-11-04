@@ -90,6 +90,18 @@ const App: React.FC = () => {
     const [isNewItemModalOpen, setIsNewItemModalOpen] = useState<boolean>(false);
     const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
 
+    const [navigationHistory, setNavigationHistory] = useState<Module[]>([]);
+    const prevModuleRef = useRef<Module>();
+    const [showEscapeConfirm, setShowEscapeConfirm] = useState(false);
+    const escapeConfirmTimeoutRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        if (prevModuleRef.current && prevModuleRef.current !== activeModule) {
+            setNavigationHistory(prev => [...prev, prevModuleRef.current!]);
+        }
+        prevModuleRef.current = activeModule;
+    }, [activeModule]);
+
     const handleNavigation = (module: Module, subView?: string) => {
         if (activeModule !== module) {
             setActiveModule(module);
@@ -99,9 +111,47 @@ const App: React.FC = () => {
     
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (isHelpModalOpen || isNewItemModalOpen) return;
-            const target = event.target as HTMLElement;
-            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
+            // Because modals and the chatbot now handle their own Escape events and stop propagation,
+            // we no longer need to check if they are open here. This makes the logic much more robust.
+            if (event.key === 'Escape') {
+                const target = event.target as HTMLElement;
+                // Still check if the user is typing in a form field.
+                if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
+                    return;
+                }
+    
+                if (showEscapeConfirm) {
+                    if (navigationHistory.length > 0) {
+                        event.preventDefault();
+                        const newHistory = [...navigationHistory];
+                        const lastModule = newHistory.pop();
+                        if (lastModule) {
+                            setNavigationHistory(newHistory);
+                            setActiveModule(lastModule);
+                        }
+                    }
+                    setShowEscapeConfirm(false);
+                    if (escapeConfirmTimeoutRef.current) {
+                        clearTimeout(escapeConfirmTimeoutRef.current);
+                    }
+                    return;
+                }
+    
+                if (navigationHistory.length > 0) {
+                    event.preventDefault();
+                    setShowEscapeConfirm(true);
+                    if (escapeConfirmTimeoutRef.current) {
+                        clearTimeout(escapeConfirmTimeoutRef.current);
+                    }
+                    escapeConfirmTimeoutRef.current = window.setTimeout(() => {
+                        setShowEscapeConfirm(false);
+                    }, 3000);
+                }
+                return; // Explicitly return after handling Escape
+            }
+            
+            // Alt + Key for Direct Navigation (only if not typing in a field)
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes((event.target as HTMLElement).tagName)) {
                 return;
             }
 
@@ -119,14 +169,13 @@ const App: React.FC = () => {
                     case '9': handleNavigation('hr'); break;
                     case '0': handleNavigation('admin'); break;
                     
-                    // Global sub-view shortcuts
                     case 'o': handleNavigation('dataEntry', 'opening'); break;
                     case 'p': handleNavigation('dataEntry', 'production'); break;
                     case 's': handleNavigation('dataEntry', 'sales'); break;
-                    case 'u': handleNavigation('dataEntry', 'ongoing'); break; // U for Ongoing
+                    case 'u': handleNavigation('dataEntry', 'ongoing'); break; 
                     
                     case 'n': handleNavigation('accounting', 'new'); break;
-                    case 'e': handleNavigation('accounting', 'update'); break; // E for Edit/Update Voucher
+                    case 'e': handleNavigation('accounting', 'update'); break;
                 }
             }
         };
@@ -134,8 +183,11 @@ const App: React.FC = () => {
         window.addEventListener('keydown', handleKeyDown);
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
+            if (escapeConfirmTimeoutRef.current) {
+                clearTimeout(escapeConfirmTimeoutRef.current);
+            }
         };
-    }, [isHelpModalOpen, isNewItemModalOpen]);
+    }, [navigationHistory, showEscapeConfirm]);
 
 
     const handleNewItemSaved = () => {
@@ -237,19 +289,19 @@ const App: React.FC = () => {
                                 {saveStatus === 'saving' && <span className="text-xs text-yellow-300 animate-pulse flex items-center justify-end">Saving...</span>}
                                 {saveStatus === 'synced' && (
                                     <span className="text-xs text-green-300 flex items-center justify-end">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                         All changes saved
                                     </span>
                                 )}
                                 {saveStatus === 'error' && (
                                     <span className="text-xs text-red-400 font-semibold flex items-center justify-end">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                         Save Error!
                                     </span>
                                 )}
                             </div>
                             <button onClick={() => setIsHelpModalOpen(true)} title="Keyboard Shortcuts" className="p-2 text-white hover:bg-blue-700 rounded-full">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                                 </svg>
                             </button>
@@ -289,6 +341,7 @@ const App: React.FC = () => {
                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 8</kbd> &rarr; Logistics</p>
                              <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 9</kbd> &rarr; HR</p>
                              <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 0</kbd> &rarr; Admin</p>
+                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Escape</kbd> &rarr; Go Back (with confirmation)</p>
                         </div>
                     </div>
                     <div>
@@ -306,6 +359,11 @@ const App: React.FC = () => {
                 </div>
             </Modal>
             <Chatbot onNavigate={handleNavigation} />
+            {showEscapeConfirm && (
+                <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-gray-800 text-white py-2 px-4 rounded-lg shadow-lg z-50 animate-fade-in-out-short font-semibold">
+                    Press Escape again to go back
+                </div>
+            )}
         </div>
     );
 };

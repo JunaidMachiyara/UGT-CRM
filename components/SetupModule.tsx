@@ -7,7 +7,7 @@ import AttendanceRegister from './AttendanceRegister.tsx';
 import SalaryCalculator from './SalaryCalculator.tsx';
 
 // START: Full-featured ExcelImportModal component
-type ImportableEntity = 'items' | 'customers' | 'suppliers' | 'commissionAgents' | 'freightForwarders' | 'clearingAgents' | 'divisions' | 'subDivisions' | 'loanAccounts' | 'expenseAccounts' | 'categories' | 'sections' | 'originalStock';
+type ImportableEntity = 'items' | 'customers' | 'suppliers' | 'commissionAgents' | 'freightForwarders' | 'clearingAgents' | 'divisions' | 'subDivisions' | 'loanAccounts' | 'expenseAccounts' | 'categories' | 'sections' | 'originalStock' | 'employees';
 
 interface ExcelImportModalProps {
   entityName: ImportableEntity;
@@ -36,6 +36,7 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
         categories: 'Categories',
         sections: 'Sections',
         originalStock: 'Historical Original Purchases',
+        employees: 'Employees',
     };
 
     const importConfig = useMemo(() => ({
@@ -234,7 +235,41 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
                 rate: Number(row.rate),
                 conversionRate: Number(row.conversionRate)
             }),
-        }
+        },
+        employees: {
+            headers: ['Full Name (Required)', 'Date of Birth (YYYY-MM-DD) (Required)', 'Joining Date (YYYY-MM-DD) (Required)', 'Nationality (Required)', 'Basic Salary (Required)', 'Designation', 'Status (Active/Inactive)', 'On Duty (true/false)', 'Biennial Leave Status (Consumed/Pending)', 'Address', 'Phone', 'Email', 'Bank Name', 'Account Number', 'IBAN', 'Passport Number', 'Passport Expiry Date', 'Visa Status', 'Visa Expiry Date', 'Advances', 'Starting Balance'],
+            idGenerator: generateEmployeeId,
+            entity: 'employees' as const,
+            keys: ['fullName', 'dateOfBirth', 'joiningDate', 'nationality', 'basicSalary', 'designation', 'status', 'onDuty', 'biennialLeaveStatus', 'address', 'phone', 'email', 'bankName', 'accountNumber', 'iban', 'passportNumber', 'passportExpiryDate', 'visaStatus', 'visaExpiryDate', 'advances', 'startingBalance'],
+            uniqueIdentifier: 'fullName',
+            validate: (row: any) => {
+                if (!row.fullName) return 'Full Name is required.';
+                if (!row.dateOfBirth) return 'Date of Birth is required.';
+                if (!row.joiningDate) return 'Joining Date is required.';
+                if (!row.nationality) return 'Nationality is required.';
+                if (!row.basicSalary || isNaN(Number(row.basicSalary))) return 'Basic Salary is required and must be a number.';
+        
+                const nameLower = row.fullName.toLowerCase();
+                if (state.employees.some(e => e.fullName.toLowerCase() === nameLower)) return `Employee '${row.fullName}' already exists.`;
+        
+                if (row.status && !['Active', 'Inactive'].includes(row.status)) return "Status must be 'Active' or 'Inactive'.";
+                if (row.onDuty && !['true', 'false', '1', '0', ''].includes(String(row.onDuty).toLowerCase())) return "On Duty must be 'true' or 'false'.";
+                if (row.biennialLeaveStatus && !['Consumed', 'Pending'].includes(row.biennialLeaveStatus)) return "Biennial Leave Status must be 'Consumed' or 'Pending'.";
+        
+                return null;
+            },
+            transform: (row: any) => ({
+                ...row,
+                basicSalary: Number(row.basicSalary),
+                advances: Number(row.advances) || 0,
+                startingBalance: Number(row.startingBalance) || 0,
+                designation: row.designation || '',
+                status: row.status || 'Active',
+                onDuty: row.onDuty ? ['true', '1'].includes(String(row.onDuty).toLowerCase()) : true,
+                biennialLeaveStatus: row.biennialLeaveStatus || 'Pending',
+                companyVisa: true,
+            }),
+        },
     }), [state]);
 
     const config = importConfig[entityName];
@@ -505,7 +540,7 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
 
                 const voucherId = `JV-${String(nextVoucherNumber).padStart(3, '0')}`;
                 const date = new Date().toISOString().split('T')[0];
-                const displayName = dataWithId.name;
+                const displayName = dataWithId.name || dataWithId.fullName;
                 const description = `Opening Balance for ${displayName} (${dataWithId.id})`;
 
                 let debitEntry: JournalEntry | null = null;
@@ -530,8 +565,10 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
                     case 'commissionAgents':
                     case 'freightForwarders':
                     case 'clearingAgents':
+                    case 'employees':
                         if (entityName === 'suppliers') entityType = 'supplier';
                         if (entityName === 'commissionAgents') entityType = 'commissionAgent';
+                        if (entityName === 'employees') entityType = 'employee';
                         if (entityName === 'freightForwarders') entityType = 'freightForwarder';
                         if (entityName === 'clearingAgents') entityType = 'clearingAgent';
         
@@ -707,7 +744,7 @@ interface CrudManagerProps<T extends Entity & { id: string, name?: string, fullN
     onOpen: () => void;
     onClose: () => void;
     onSaveSuccess: () => void;
-    onOpenImportModal: (entityName: string) => void;
+    onOpenImportModal?: (entityName: string) => void;
     userProfile: UserProfile | null;
     icon: React.ReactNode;
     isInitiallyExpanded?: boolean;
@@ -725,7 +762,7 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
         setIsExpanded(isInitiallyExpanded);
     }, [isInitiallyExpanded]);
     
-    const entitiesWithImport: ImportableEntity[] = ['items', 'customers', 'suppliers', 'commissionAgents', 'freightForwarders', 'clearingAgents', 'divisions', 'subDivisions', 'loanAccounts', 'expenseAccounts', 'categories', 'sections'];
+    const entitiesWithImport: ImportableEntity[] = ['items', 'customers', 'suppliers', 'commissionAgents', 'freightForwarders', 'clearingAgents', 'divisions', 'subDivisions', 'loanAccounts', 'expenseAccounts', 'categories', 'sections', 'employees'];
 
     const getDisplayValue = (item: T, key: keyof T) => {
         const value = item[key];
@@ -1253,7 +1290,7 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
                     <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
                 </div>
                 <div className="flex items-center space-x-2">
-                    {entitiesWithImport.includes(entityName as any) && (
+                    {onOpenImportModal && entitiesWithImport.includes(entityName as any) && (
                          <button 
                             onClick={(e) => { e.stopPropagation(); onOpenImportModal(entityName); }} 
                             className="px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-xs font-semibold flex items-center space-x-1"
@@ -1853,6 +1890,7 @@ export const HRModule: React.FC<HRModuleProps> = ({ userProfile, initialView }) 
     const [activeView, setActiveView] = useState<'employees' | 'attendance' | 'payroll' | 'tasks' | 'enquiries' | 'vehicles'>(initialView as any || 'employees');
     const [notification, setNotification] = useState<string | null>(null);
     const [activeModal, setActiveModal] = useState<string | null>(null);
+    const [importModalConfig, setImportModalConfig] = useState<{ isOpen: boolean; entityName: ImportableEntity | null }>({ isOpen: false, entityName: null });
 
     useEffect(() => {
         if(initialView) {
@@ -1943,12 +1981,12 @@ export const HRModule: React.FC<HRModuleProps> = ({ userProfile, initialView }) 
     
     const renderView = () => {
         switch(activeView) {
-            case 'employees': return <CrudManager {...(employeeCrudProps as any)} state={state} showNotification={showNotification} isOpen={activeModal === 'employees'} onOpen={() => setActiveModal('employees')} onClose={handleModalClose} onSaveSuccess={handleSaveSuccess} onOpenImportModal={()=>{}} userProfile={userProfile} />;
+            case 'employees': return <CrudManager {...(employeeCrudProps as any)} state={state} showNotification={showNotification} isOpen={activeModal === 'employees'} onOpen={() => setActiveModal('employees')} onClose={handleModalClose} onSaveSuccess={handleSaveSuccess} onOpenImportModal={(entity) => setImportModalConfig({ isOpen: true, entityName: entity as ImportableEntity })} userProfile={userProfile} />;
             case 'attendance': return <div className="bg-white p-6 rounded-lg shadow-md"><AttendanceRegister userProfile={userProfile} /></div>;
             case 'payroll': return <div className="bg-white p-6 rounded-lg shadow-md"><SalaryCalculator /></div>;
             case 'tasks': return <TasksModule userProfile={userProfile} />;
             case 'enquiries': return <EnquiriesModule userProfile={userProfile} />;
-            case 'vehicles': return <CrudManager {...(vehicleCrudProps as any)} state={state} showNotification={showNotification} isOpen={activeModal === 'vehicles'} onOpen={() => setActiveModal('vehicles')} onClose={handleModalClose} onSaveSuccess={handleSaveSuccess} onOpenImportModal={()=>{}} userProfile={userProfile} />;
+            case 'vehicles': return <CrudManager {...(vehicleCrudProps as any)} state={state} showNotification={showNotification} isOpen={activeModal === 'vehicles'} onOpen={() => setActiveModal('vehicles')} onClose={handleModalClose} onSaveSuccess={handleSaveSuccess} userProfile={userProfile} />;
             default: return <div>Select a module</div>;
         }
     };
@@ -1965,6 +2003,13 @@ export const HRModule: React.FC<HRModuleProps> = ({ userProfile, initialView }) 
     return (
         <div className="space-y-6">
             {notification && <Notification message={notification} onTimeout={() => setNotification(null)} />}
+             {importModalConfig.isOpen && (
+                <ExcelImportModal
+                    entityName={importModalConfig.entityName as ImportableEntity}
+                    onClose={() => setImportModalConfig({ isOpen: false, entityName: null })}
+                    showNotification={showNotification}
+                />
+            )}
             <div className="bg-white p-4 rounded-lg shadow-md">
                 <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-xl font-bold text-slate-700 mr-4">Human Resources</h2>

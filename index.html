@@ -94,6 +94,15 @@
         animation: blink 4s infinite ease-in-out;
         transform-origin: center;
       }
+      @keyframes fade-in-out-short {
+          0% { opacity: 0; transform: translate(-50%, 10px); }
+          15% { opacity: 1; transform: translate(-50%, 0); }
+          85% { opacity: 1; transform: translate(-50%, 0); }
+          100% { opacity: 0; transform: translate(-50%, 10px); }
+      }
+      .animate-fade-in-out-short {
+          animation: fade-in-out-short 3s ease-in-out forwards;
+      }
       /* Global Form Element Styles */
       input[type="text"],
       input[type="number"],
