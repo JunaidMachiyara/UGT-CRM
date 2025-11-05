@@ -79,7 +79,7 @@ const LoginScreen: React.FC<{ setNotification: (n: any) => void; }> = ({ setNoti
     );
 };
 
-const mainModules: Module[] = ['test', 'dashboard', 'setup', 'dataEntry', 'accounting', 'reports', 'posting', 'logistics', 'hr', 'admin'];
+const mainModules: Module[] = ['dashboard', 'setup', 'dataEntry', 'accounting', 'reports', 'posting', 'logistics', 'hr', 'admin'];
 
 const App: React.FC = () => {
     const [activeModule, setActiveModule] = useState<Module>('dashboard');
@@ -272,7 +272,6 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex items-center space-x-4">
                         <nav className="flex space-x-1 bg-blue-800 p-1 rounded-lg">
-                            <NavButton module="test" label="Test Page" shortcut="" />
                             <NavButton module="analytics" label="Analytics" shortcut="Alt + 1" />
                             <NavButton module="dashboard" label="Dashboard" shortcut="Alt + 2" />
                             <NavButton module="setup" label="Setup" shortcut="Alt + 3" />

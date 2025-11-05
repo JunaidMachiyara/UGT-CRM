@@ -1,7 +1,109 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useData, auth, db, allPermissions, dataEntrySubModules, mainModules } from '../context/DataContext.tsx';
-import { Module, UserProfile, AppState } from '../types.ts';
+import { Module, UserProfile, AppState, PackingType } from '../types.ts';
 import { reportStructure } from './ReportsModule.tsx';
+import Modal from './ui/Modal.tsx';
+
+const DataCorrectionManager: React.FC<{ setNotification: (n: any) => void; }> = ({ setNotification }) => {
+    const { state, dispatch } = useData();
+    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+
+    const executePriceCorrection = () => {
+        const batchUpdates: any[] = [];
+        let updatedCount = 0;
+
+        state.items.forEach(item => {
+            if (item.packingType !== PackingType.Kg && item.baleSize > 0) {
+                const newAvgProductionPrice = item.avgProductionPrice / item.baleSize;
+                const newAvgSalesPrice = item.avgSalesPrice / item.baleSize;
+
+                // Check if there's an actual change to avoid unnecessary updates
+                if (newAvgProductionPrice !== item.avgProductionPrice || newAvgSalesPrice !== item.avgSalesPrice) {
+                    batchUpdates.push({
+                        type: 'UPDATE_ENTITY',
+                        payload: {
+                            entity: 'items',
+                            data: {
+                                id: item.id,
+                                avgProductionPrice: newAvgProductionPrice,
+                                avgSalesPrice: newAvgSalesPrice,
+                            },
+                        },
+                    });
+                    updatedCount++;
+                }
+            }
+        });
+
+        if (batchUpdates.length > 0) {
+            dispatch({ type: 'BATCH_UPDATE', payload: batchUpdates });
+            setNotification({ msg: `Successfully corrected prices for ${updatedCount} items.`, type: 'success' });
+        } else {
+            setNotification({ msg: "No items required price correction.", type: 'success' });
+        }
+        setIsConfirmModalOpen(false); // Close modal on completion
+    };
+    
+    const handlePriceCorrection = () => {
+        setIsConfirmModalOpen(true);
+    };
+
+    const handleCancel = () => {
+        setIsConfirmModalOpen(false);
+        setNotification({ msg: "Price Correction cancelled.", type: 'success' });
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-2xl font-bold text-slate-700 mb-4">Data Correction Tools</h2>
+             <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6" role="alert">
+                <h3 className="font-bold text-red-800">Use with Extreme Caution</h3>
+                <p className="text-sm text-red-700 mt-1">
+                    The tools in this section perform irreversible bulk data operations. Always download a backup before proceeding.
+                </p>
+            </div>
+            <div className="border-t pt-4">
+                <h3 className="text-lg font-semibold text-slate-800">Correct Item Prices (Unit to Kg)</h3>
+                <p className="text-sm text-slate-600 mt-1 mb-3">
+                    This tool converts 'Average Production Price' and 'Average Sales Price' from a per-unit (Bale, Box, Sack) price to a per-Kg price by dividing by the item's 'Packing Size'. This is useful if you accidentally imported unit prices instead of Kg prices.
+                </p>
+                <button
+                    onClick={handlePriceCorrection}
+                    className="px-4 py-2 bg-orange-600 text-white font-semibold rounded-md hover:bg-orange-700 transition-colors flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    Run Price Correction Script
+                </button>
+            </div>
+             {isConfirmModalOpen && (
+                 <Modal
+                    isOpen={isConfirmModalOpen}
+                    onClose={handleCancel}
+                    title="Confirm Price Correction"
+                    size="lg"
+                 >
+                    <div className="space-y-4">
+                        <p className="font-bold text-red-600">WARNING: This is an irreversible action.</p>
+                        <p className="text-slate-700">This will permanently modify the prices of all items not packed in 'Kg'.</p>
+                        <p className="text-slate-600 bg-slate-100 p-2 rounded-md font-mono text-sm">
+                            New Price = Current Price / Packing Size
+                        </p>
+                        <p className="text-slate-700">Are you sure you want to proceed?</p>
+                        <div className="flex justify-end gap-3 pt-4 border-t">
+                            <button onClick={handleCancel} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300">
+                                Cancel
+                            </button>
+                            <button onClick={executePriceCorrection} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
+                                Yes, Proceed
+                            </button>
+                        </div>
+                    </div>
+                 </Modal>
+            )}
+        </div>
+    );
+};
+
 
 const BackupRestoreManager: React.FC<{ setNotification: (n: any) => void; }> = ({ setNotification }) => {
     const { state, dispatch } = useData();
@@ -328,7 +430,7 @@ const AdminModule: React.FC<{ setNotification: (n: any) => void; }> = ({ setNoti
                 <h2 className="text-2xl font-bold text-slate-700 mb-4">Manage Users</h2>
                  <div className="overflow-x-auto"><table className="w-full text-left table-auto"><thead><tr className="bg-slate-100"><th className="p-3 font-semibold text-slate-600">Name</th><th className="p-3 font-semibold text-slate-600">Email</th><th className="p-3 font-semibold text-slate-600">Role</th></tr></thead><tbody>{users.map(user => (<tr key={user.uid} className="border-b hover:bg-slate-50"><td className="p-3 text-slate-700">{user.name}</td><td className="p-3 text-slate-700">{user.email}</td><td className="p-3 text-slate-700 capitalize">{user.isAdmin ? 'Admin' : 'Custom'}</td></tr>))}</tbody></table></div>
             </div>
-
+            {userProfile?.isAdmin && <DataCorrectionManager setNotification={setNotification} />}
             {userProfile?.isAdmin && <BackupRestoreManager setNotification={setNotification} />}
         </div>
     );

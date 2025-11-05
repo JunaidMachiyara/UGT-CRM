@@ -21,10 +21,12 @@ import SectionProductionReport from './reports/SectionProductionReport.tsx';
 import FeasibilityReport from "./reports/FeasibilityReport.tsx";
 import RebalingReport from "./reports/RebalingReport.tsx";
 import PaymentPlannerReport from './reports/PaymentPlannerReport.tsx';
+import StockWorthReport from './reports/StockWorthReport.tsx';
 
 type ReportCategoryKey = 'item-performance' | 'original-stock-v1' | 'ledger' | 'cash-bank' | 'invoices' | 'detailed-reports' | 'production' | 'financial' | 'fulfillment';
 type ReportKey = 
     | 'item-performance/summary'
+    | 'item-performance/stock-worth'
     | 'item-performance/non-moving'
     | 'item-performance/alerts'
     | 'item-performance/production-analysis'
@@ -66,6 +68,7 @@ export const reportStructure: ReportCategory[] = [
         label: 'Item Performance',
         subReports: [
             { key: 'item-performance/summary', label: 'Performance Summary' },
+            { key: 'item-performance/stock-worth', label: 'Stock Worth' },
             { key: 'item-performance/item-summary', label: 'Item Sales Summary' },
             { key: 'item-performance/non-moving', label: 'Non-Moving Items' },
             { key: 'item-performance/alerts', label: 'Stock Alerts' },
@@ -226,6 +229,8 @@ const ReportsModule: React.FC<{ userProfile: UserProfile | null, initialReport?:
         switch (activeReportKey) {
             case 'item-performance/summary':
                 return <ItemPerformanceReport />;
+            case 'item-performance/stock-worth':
+                return <StockWorthReport />;
             case 'item-performance/item-summary':
                 return <ItemSummaryReport />;
             case 'item-performance/non-moving':

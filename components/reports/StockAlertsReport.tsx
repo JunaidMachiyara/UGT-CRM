@@ -30,7 +30,9 @@ const StockAlertsReport: React.FC = () => {
                 .filter(i => i.itemId === item.id)
                 .reduce((sum, i) => sum + i.quantity, 0);
             
-            const closingStock = totalProduction - totalSales;
+            const openingStock = item.openingStock || 0;
+            
+            const closingStock = openingStock + totalProduction - totalSales;
             
             return {
                 id: item.id,

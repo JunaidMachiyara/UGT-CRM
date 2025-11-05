@@ -38,7 +38,7 @@ const OrderFulfillmentDashboard: React.FC = () => {
         state.items.forEach(item => {
             const production = state.productions.filter(p => p.itemId === item.id).reduce((sum, p) => sum + p.quantityProduced, 0);
             const sales = state.salesInvoices.filter(s => s.status !== InvoiceStatus.Unposted).flatMap(s => s.items).filter(i => i.itemId === item.id).reduce((sum, i) => sum + i.quantity, 0);
-            currentStock[item.id] = production - sales;
+            currentStock[item.id] = (item.openingStock || 0) + production - sales;
         });
 
         let activeOrders = state.ongoingOrders.filter(o => o.status === OngoingOrderStatus.Active || o.status === OngoingOrderStatus.PartiallyShipped);

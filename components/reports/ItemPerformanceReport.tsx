@@ -69,7 +69,9 @@ const ItemPerformanceReport: React.FC = () => {
                     .filter(i => i.itemId === item.id)
                     .reduce((sum, i) => sum + i.quantity, 0);
                 
-                const openingStock = totalProductionBefore - totalSalesBefore;
+                const openingStockFromSetup = item.openingStock || 0;
+                
+                const openingStock = openingStockFromSetup + totalProductionBefore - totalSalesBefore;
 
                 const productionQtyInPeriod = productionsInPeriod
                     .filter(p => p.itemId === item.id)

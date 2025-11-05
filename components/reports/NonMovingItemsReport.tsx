@@ -43,11 +43,13 @@ const NonMovingItemsReport: React.FC = () => {
                 .filter(i => i.itemId === item.id)
                 .reduce((sum, i) => sum + i.quantity, 0);
 
+            const openingStock = item.openingStock || 0;
+
             return {
                 id: item.id,
                 name: item.name,
                 category: state.categories.find(c => c.id === item.categoryId)?.name || 'N/A',
-                closingStock: totalProduction - totalSales,
+                closingStock: openingStock + totalProduction - totalSales,
             };
         });
     }, [filters, state]);

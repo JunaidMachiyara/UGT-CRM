@@ -723,7 +723,7 @@ const RebalingForm: React.FC<{ showNotification: (msg: string) => void; userProf
         const production = state.productions.filter(p => p.itemId === item.id).reduce((sum, p) => sum + p.quantityProduced, 0);
         const sales = state.salesInvoices.filter(inv => inv.status !== InvoiceStatus.Unposted).flatMap(inv => inv.items).filter(i => i.itemId === item.id).reduce((sum, i) => sum + i.quantity, 0);
 
-        return production - sales;
+        return (item.openingStock || 0) + production - sales;
     }, [fromItem.itemId, state.productions, state.salesInvoices, state.items]);
 
     const handleAddItem = (side: 'from' | 'to') => {

@@ -228,16 +228,26 @@ const Dashboard: React.FC<DashboardProps> = ({ setModule }) => {
     }, [state.originalPurchases, state.originalOpenings, state.originalTypes]);
 
     const finishedGoodsStockKg = useMemo(() => {
+        const openingStockKg = state.items.reduce((acc, item) => {
+            const stockUnits = item.openingStock || 0;
+            if (stockUnits > 0) {
+                const unitWeight = item.packingType !== PackingType.Kg ? item.baleSize : 1;
+                return acc + (stockUnits * unitWeight);
+            }
+            return acc;
+        }, 0);
+
         const productionKg = state.productions.reduce((acc, p) => {
             const item = state.items.find(i => i.id === p.itemId);
             if (!item) return acc;
             const itemKg = item.packingType !== PackingType.Kg ? item.baleSize : 1;
             return acc + p.quantityProduced * itemKg;
         }, 0);
+
         const salesKg = state.salesInvoices
             .filter(inv => inv.status !== InvoiceStatus.Unposted)
             .reduce((acc, inv) => acc + inv.totalKg, 0);
-        return productionKg - salesKg;
+        return openingStockKg + productionKg - salesKg;
     }, [state.productions, state.salesInvoices, state.items]);
     
      const productionStats = useMemo(() => {
@@ -475,7 +485,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setModule }) => {
                         <button onClick={() => handleShortcutClick('item-performance/summary')} className="text-blue-600 hover:underline">Item Performance</button>
                         <button onClick={() => handleShortcutClick('invoices/sales')} className="text-blue-600 hover:underline">Sales Invoices</button>
                         <button onClick={() => handleShortcutClick('cash-bank/ledger')} className="text-blue-600 hover:underline">Cash & Bank</button>
-                        <button onClick={() => handleShortcutClick('financial/profit-loss')} className="text-blue-600 hover:underline">Profit & Loss</button>
+                        <button onClick={() => handleShortcutClick('financial/balance-sheet')} className="text-blue-600 hover:underline">Balance Sheet</button>
                      </div>
                 </div>
             </div>
