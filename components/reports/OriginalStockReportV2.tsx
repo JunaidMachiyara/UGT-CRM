@@ -1,54 +1,71 @@
 import React from 'react';
 import { useData } from '../../context/DataContext.tsx';
 import ReportToolbar from './ReportToolbar.tsx';
-import { OriginalPurchased } from '../../types.ts';
+import { OriginalPurchased, PackingType } from '../../types.ts';
 
 const OriginalStockReportV2: React.FC = () => {
     const { state } = useData();
 
     // Stable and performant data calculation
     const reportData = React.useMemo(() => {
-        const openingsByBatch = new Map<string, number>();
-        state.originalOpenings.forEach(opening => {
-            const key = `${opening.supplierId}-${opening.originalTypeId}-${opening.batchNumber}`;
-            openingsByBatch.set(key, (openingsByBatch.get(key) || 0) + opening.opened);
+        const stockByCombination = new Map<string, { inHand: number; purchase: OriginalPurchased | null }>();
+        const getKey = (p: { supplierId: string; subSupplierId?: string; originalTypeId: string; originalProductId?: string }) => {
+            return `${p.supplierId || 'none'}|${p.subSupplierId || 'none'}|${p.originalTypeId || 'none'}|${p.originalProductId || 'none'}`;
+        };
+
+        state.originalPurchases.forEach(p => {
+            const key = getKey(p);
+            const current = stockByCombination.get(key) || { inHand: 0, purchase: p };
+            current.inHand += p.quantityPurchased;
+            stockByCombination.set(key, current);
         });
 
-        return state.originalPurchases.map(purchase => {
-            const openingKey = `${purchase.supplierId}-${purchase.originalTypeId}-${purchase.batchNumber}`;
-            const openedQty = openingsByBatch.get(openingKey) || 0;
-            const inHandQty = purchase.quantityPurchased - openedQty;
+        state.originalOpenings.forEach(o => {
+            const key = getKey(o);
+            const current = stockByCombination.get(key);
+            if (current) {
+                current.inHand -= o.opened;
+                stockByCombination.set(key, current);
+            }
+        });
 
-            const supplier = state.suppliers.find(s => s.id === purchase.supplierId);
-            const originalType = state.originalTypes.find(ot => ot.id === purchase.originalTypeId);
+        const data = [];
+        for (const [key, { inHand, purchase }] of stockByCombination.entries()) {
+            if (inHand <= 0.001 || !purchase) continue;
 
-            return {
-                ...purchase,
+            const [supplierId, subSupplierId, originalTypeId, originalProductId] = key.split('|');
+            
+            const supplier = state.suppliers.find(s => s.id === supplierId);
+            const subSupplier = subSupplierId !== 'none' ? state.subSuppliers.find(ss => ss.id === subSupplierId) : undefined;
+            const originalType = state.originalTypes.find(ot => ot.id === originalTypeId);
+            const originalProduct = originalProductId !== 'none' ? state.originalProducts.find(op => op.id === originalProductId) : undefined;
+
+            data.push({
+                key,
                 supplierName: supplier?.name || 'N/A',
+                subSupplierName: subSupplier?.name || '-',
                 originalTypeName: originalType?.name || 'N/A',
-                opened: openedQty,
-                inHand: inHandQty,
-            };
-        }).filter(row => row.inHand > 0) // Only show items with stock
-          .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    }, [state.originalPurchases, state.originalOpenings, state.suppliers, state.originalTypes]); // Minimal dependencies
+                originalProductName: originalProduct?.name || '-',
+                inHand: inHand,
+            });
+        }
+
+        return data.sort((a, b) => a.supplierName.localeCompare(b.supplierName));
+
+    }, [state.originalPurchases, state.originalOpenings, state.suppliers, state.originalTypes, state.subSuppliers, state.originalProducts]);
 
     const totals = React.useMemo(() => {
         return reportData.reduce((acc, row) => {
-            acc.purchaseQuantity += row.quantityPurchased;
-            acc.opened += row.opened;
             acc.inHand += row.inHand;
             return acc;
-        }, { purchaseQuantity: 0, opened: 0, inHand: 0 });
+        }, { inHand: 0 });
     }, [reportData]);
 
     const exportHeaders = [
         { label: 'Supplier', key: 'supplierName' },
-        { label: 'Batch Number', key: 'batchNumber' },
+        { label: 'Sub-Supplier', key: 'subSupplierName' },
         { label: 'Original Type', key: 'originalTypeName' },
-        { label: 'Purchase Quantity', key: 'quantityPurchased' },
-        { label: 'Rate', key: 'rate' },
-        { label: 'Opened', key: 'opened' },
+        { label: 'Original Product', key: 'originalProductName' },
         { label: 'In Hand', key: 'inHand' },
     ];
     
@@ -62,7 +79,7 @@ const OriginalStockReportV2: React.FC = () => {
             />
             
             <p className="text-sm text-slate-600 mb-4">
-                This report shows all original purchase batches that still have stock in hand.
+                This report shows a summary of all original materials currently in stock.
             </p>
 
             <div className="overflow-x-auto">
@@ -70,31 +87,26 @@ const OriginalStockReportV2: React.FC = () => {
                     <thead>
                         <tr className="bg-slate-100">
                             <th className="p-2 font-semibold text-slate-600">Supplier</th>
-                            <th className="p-2 font-semibold text-slate-600">Batch Number</th>
+                            <th className="p-2 font-semibold text-slate-600">Sub-Supplier</th>
                             <th className="p-2 font-semibold text-slate-600">Original Type</th>
-                            <th className="p-2 font-semibold text-slate-600 text-right">Purchase Qty</th>
-                            <th className="p-2 font-semibold text-slate-600 text-right">Rate</th>
-                            <th className="p-2 font-semibold text-slate-600 text-right">Opened</th>
-                            <th className="p-2 font-semibold text-slate-600 text-right">In Hand</th>
+                            <th className="p-2 font-semibold text-slate-600">Original Product</th>
+                            <th className="p-2 font-semibold text-slate-600 text-right">In Hand (Units)</th>
                         </tr>
                     </thead>
                     <tbody>
                         {reportData.map(row => (
-                            <tr key={row.id} className="border-b hover:bg-slate-50">
+                            <tr key={row.key} className="border-b hover:bg-slate-50">
                                 <td className="p-2 text-slate-700">{row.supplierName}</td>
-                                <td className="p-2 text-slate-700 font-mono">{row.batchNumber}</td>
+                                <td className="p-2 text-slate-700">{row.subSupplierName}</td>
                                 <td className="p-2 text-slate-700">{row.originalTypeName}</td>
-                                <td className="p-2 text-slate-700 text-right">{(Number(row.quantityPurchased) || 0).toLocaleString()}</td>
-                                <td className="p-2 text-slate-700 text-right">{(Number(row.rate) || 0).toFixed(2)} {row.currency}</td>
-                                <td className="p-2 text-slate-700 text-right">{(Number(row.opened) || 0).toLocaleString()}</td>
+                                <td className="p-2 text-slate-700">{row.originalProductName}</td>
                                 <td className="p-2 text-slate-700 text-right font-bold">{(Number(row.inHand) || 0).toLocaleString()}</td>
                             </tr>
                         ))}
                     </tbody>
                     <tfoot>
                         <tr className="bg-slate-100 font-bold">
-                            <td colSpan={5} className="p-2 text-right text-slate-800">Totals</td>
-                            <td className="p-2 text-right text-slate-800">{(Number(totals.opened) || 0).toLocaleString()}</td>
+                            <td colSpan={4} className="p-2 text-right text-slate-800">Total In Hand</td>
                             <td className="p-2 text-right text-slate-800">{(Number(totals.inHand) || 0).toLocaleString()}</td>
                         </tr>
                     </tfoot>

@@ -25,88 +25,108 @@ const Notification: React.FC<{ message: string; onTimeout: () => void }> = ({ me
 
 const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; userProfile: UserProfile | null }> = ({ showNotification, userProfile }) => {
     const { state, dispatch } = useData();
-    const [formData, setFormData] = useState({ date: new Date().toISOString().split('T')[0], supplierId: '', originalTypeId: '', batchNumber: '', opened: '' });
-    const [supplierOriginalTypes, setSupplierOriginalTypes] = useState<OriginalType[]>([]);
-    const [availableBatches, setAvailableBatches] = useState<{ batch: string, stock: number }[]>([]);
+    const [formData, setFormData] = useState({ date: new Date().toISOString().split('T')[0], supplierId: '', subSupplierId: '', originalTypeId: '', originalProductId: '', opened: '' });
+    
     const [totalKg, setTotalKg] = useState(0);
     const [availableStock, setAvailableStock] = useState(0);
     const supplierRef = useRef<HTMLSelectElement>(null);
-    const originalTypeRef = useRef<HTMLSelectElement>(null);
-    const batchNumberRef = useRef<HTMLSelectElement>(null);
 
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [editingItem, setEditingItem] = useState<{ id: string; opened: string; originalTypeId: string; supplierId: string, batchNumber: string; } | null>(null);
+    const [editingItem, setEditingItem] = useState<OriginalOpening | null>(null);
     
     const minDate = userProfile?.isAdmin ? '' : new Date().toISOString().split('T')[0];
 
-
-    const rawMaterialStock = useMemo(() => {
-        const stock: { [supplierId: string]: { [originalTypeId: string]: { [batchNumber: string]: number } } } = {};
+    const stockByCombination = useMemo(() => {
+        const stock = new Map<string, number>();
+        const getKey = (p: { supplierId: string; subSupplierId?: string; originalTypeId: string; originalProductId?: string }) => {
+            return `${p.supplierId || 'none'}|${p.subSupplierId || 'none'}|${p.originalTypeId || 'none'}|${p.originalProductId || 'none'}`;
+        };
 
         state.originalPurchases.forEach(p => {
-            stock[p.supplierId] = stock[p.supplierId] || {};
-            stock[p.supplierId][p.originalTypeId] = stock[p.supplierId][p.originalTypeId] || {};
-            stock[p.supplierId][p.originalTypeId][p.batchNumber] = (stock[p.supplierId][p.originalTypeId][p.batchNumber] || 0) + p.quantityPurchased;
+            const key = getKey(p);
+            stock.set(key, (stock.get(key) || 0) + p.quantityPurchased);
         });
 
         state.originalOpenings.forEach(o => {
-            if (stock[o.supplierId]?.[o.originalTypeId]?.[o.batchNumber] !== undefined) {
-                stock[o.supplierId][o.originalTypeId][o.batchNumber] -= o.opened;
-            } else {
-                 stock[o.supplierId] = stock[o.supplierId] || {};
-                 stock[o.supplierId][o.originalTypeId] = stock[o.supplierId][o.originalTypeId] || {};
-                 stock[o.supplierId][o.originalTypeId][o.batchNumber] = -o.opened;
-            }
+            const key = getKey(o);
+            stock.set(key, (stock.get(key) || 0) - o.opened);
         });
-
         return stock;
     }, [state.originalPurchases, state.originalOpenings]);
 
-    const suppliersWithStock = useMemo(() => {
-        const supplierIdsWithStock = Object.keys(rawMaterialStock).filter(supplierId => {
-            const typesForSupplier = rawMaterialStock[supplierId];
-            return Object.values(typesForSupplier).some(batchesForType =>
-                Object.values(batchesForType).some(stock => (stock as number) > 0)
-            );
-        });
-        return state.suppliers.filter(s => supplierIdsWithStock.includes(s.id));
-    }, [rawMaterialStock, state.suppliers]);
+    const availableSuppliers = useMemo(() => {
+        const supplierIdsWithStock = new Set<string>();
+        for (const key of stockByCombination.keys()) {
+            const stock = stockByCombination.get(key) || 0;
+            if (stock > 0) {
+                supplierIdsWithStock.add(key.split('|')[0]);
+            }
+        }
+        return state.suppliers.filter(s => supplierIdsWithStock.has(s.id));
+    }, [stockByCombination, state.suppliers]);
+
+    const availableSubSuppliers = useMemo(() => {
+        if (!formData.supplierId) return [];
+        const subSupplierIdsWithStock = new Set<string>();
+        for (const key of stockByCombination.keys()) {
+             const stock = stockByCombination.get(key) || 0;
+             if (stock > 0) {
+                const [supId, subSupId] = key.split('|');
+                if (supId === formData.supplierId && subSupId !== 'none') {
+                    subSupplierIdsWithStock.add(subSupId);
+                }
+             }
+        }
+        return state.subSuppliers.filter(ss => ss.supplierId === formData.supplierId && subSupplierIdsWithStock.has(ss.id));
+    }, [formData.supplierId, stockByCombination, state.subSuppliers]);
+
+     const availableOriginalTypes = useMemo(() => {
+        if (!formData.supplierId) return [];
+        const typeIdsWithStock = new Set<string>();
+        for (const key of stockByCombination.keys()) {
+            const stock = stockByCombination.get(key) || 0;
+             if (stock > 0) {
+                const [supId, subSupId, typeId] = key.split('|');
+                if (supId === formData.supplierId && (subSupId === (formData.subSupplierId || 'none'))) {
+                    typeIdsWithStock.add(typeId);
+                }
+             }
+        }
+        return state.originalTypes.filter(ot => typeIdsWithStock.has(ot.id));
+    }, [formData.supplierId, formData.subSupplierId, stockByCombination, state.originalTypes]);
+
+    const availableOriginalProducts = useMemo(() => {
+        if (!formData.originalTypeId) return [];
+        const productIdsWithStock = new Set<string>();
+        for (const key of stockByCombination.keys()) {
+            const stock = stockByCombination.get(key) || 0;
+            if (stock > 0) {
+                const [supId, subSupId, typeId, prodId] = key.split('|');
+                if (supId === formData.supplierId && subSupId === (formData.subSupplierId || 'none') && typeId === formData.originalTypeId && prodId !== 'none') {
+                    productIdsWithStock.add(prodId);
+                }
+            }
+        }
+        return state.originalProducts.filter(op => op.originalTypeId === formData.originalTypeId && productIdsWithStock.has(op.id));
+    }, [formData.supplierId, formData.subSupplierId, formData.originalTypeId, stockByCombination, state.originalProducts]);
 
     useEffect(() => {
-        if (formData.supplierId && rawMaterialStock[formData.supplierId]) {
-            const typesWithStockIds = Object.keys(rawMaterialStock[formData.supplierId]).filter(
-                originalTypeId => Object.values(rawMaterialStock[formData.supplierId][originalTypeId]).some(stock => (stock as number) > 0)
-            );
-            const types = state.originalTypes.filter(ot => typesWithStockIds.includes(ot.id));
-            setSupplierOriginalTypes(types);
-        } else {
-            setSupplierOriginalTypes([]);
-        }
-        setFormData(f => ({ ...f, originalTypeId: '', batchNumber: '', opened: '' }));
-    }, [formData.supplierId, rawMaterialStock, state.originalTypes]);
+        setFormData(f => ({ ...f, subSupplierId: '', originalTypeId: '', originalProductId: '', opened: '' }));
+    }, [formData.supplierId]);
 
     useEffect(() => {
-        if (formData.supplierId && formData.originalTypeId && rawMaterialStock[formData.supplierId]?.[formData.originalTypeId]) {
-            const batches = rawMaterialStock[formData.supplierId][formData.originalTypeId];
-            const batchesWithStock = Object.entries(batches)
-                .filter(([, stock]) => (stock as number) > 0)
-                .map(([batch, stock]) => ({ batch, stock: stock as number }));
-            setAvailableBatches(batchesWithStock);
-        } else {
-            setAvailableBatches([]);
-        }
-        setFormData(f => ({ ...f, batchNumber: '', opened: '' }));
-    }, [formData.originalTypeId, formData.supplierId, rawMaterialStock]);
+        setFormData(f => ({ ...f, originalTypeId: '', originalProductId: '', opened: '' }));
+    }, [formData.subSupplierId]);
     
+    useEffect(() => {
+        setFormData(f => ({ ...f, originalProductId: '', opened: '' }));
+    }, [formData.originalTypeId]);
 
     useEffect(() => {
-        if (formData.supplierId && formData.originalTypeId && formData.batchNumber) {
-            const stock = rawMaterialStock[formData.supplierId]?.[formData.originalTypeId]?.[formData.batchNumber] || 0;
-            setAvailableStock(stock);
-        } else {
-            setAvailableStock(0);
-        }
-    }, [formData.supplierId, formData.originalTypeId, formData.batchNumber, rawMaterialStock]);
+        const key = `${formData.supplierId || 'none'}|${formData.subSupplierId || 'none'}|${formData.originalTypeId || 'none'}|${formData.originalProductId || 'none'}`;
+        const stock = stockByCombination.get(key) || 0;
+        setAvailableStock(stock);
+    }, [formData.supplierId, formData.subSupplierId, formData.originalTypeId, formData.originalProductId, stockByCombination]);
     
     useEffect(() => {
         const openedValue = Number(formData.opened) || 0;
@@ -128,54 +148,51 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
             .filter(o => o.date === formData.date)
             .map(o => {
                 const supplier = state.suppliers.find(s => s.id === o.supplierId);
+                const subSupplier = state.subSuppliers.find(ss => ss.id === o.subSupplierId);
                 const originalType = state.originalTypes.find(ot => ot.id === o.originalTypeId);
+                const originalProduct = state.originalProducts.find(op => op.id === o.originalProductId);
                 return {
                     ...o,
                     supplierName: supplier?.name || 'Unknown',
+                    subSupplierName: subSupplier?.name,
                     originalTypeName: originalType?.name || 'Unknown',
+                    originalProductName: originalProduct?.name,
                 };
             })
             .reverse(); // Show latest entry first
-    }, [formData.date, state.originalOpenings, state.suppliers, state.originalTypes]);
+    }, [formData.date, state.originalOpenings, state.suppliers, state.subSuppliers, state.originalTypes, state.originalProducts]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const { date, supplierId, originalTypeId, batchNumber, opened } = formData;
+        const { date, supplierId, subSupplierId, originalTypeId, originalProductId, opened } = formData;
         const openedNum = Number(opened);
 
-        if (!date || !supplierId || !originalTypeId || !batchNumber || !opened || openedNum <= 0) {
-            alert("Please fill all fields correctly.");
+        if (!date || !supplierId || !originalTypeId || !opened || openedNum <= 0) {
+            alert("Please fill all required fields correctly.");
             return;
         }
 
-        const stock = rawMaterialStock[supplierId]?.[originalTypeId]?.[batchNumber] || 0;
-        if (openedNum > stock) {
-            alert(`Warning: You are opening ${openedNum} units, but only ${stock} are available. This will result in negative stock.`);
+        if (openedNum > availableStock) {
+            alert(`Warning: You are opening ${openedNum} units, but only ${availableStock} are available. This will result in negative stock.`);
         }
 
         const newOpening: OriginalOpening = {
             id: `oo_${Date.now()}`,
             date,
             supplierId,
+            subSupplierId: subSupplierId || undefined,
             originalTypeId,
-            batchNumber,
+            originalProductId: originalProductId || undefined,
             opened: openedNum,
             totalKg: totalKg,
         };
         dispatch({ type: 'ADD_ENTITY', payload: { entity: 'originalOpenings', data: newOpening } });
-        setFormData({ ...formData, supplierId: '', originalTypeId: '', batchNumber: '', opened: '' });
+        setFormData({ ...formData, opened: '' }); // Keep selections, clear quantity
         showNotification("Data Submitted");
-        supplierRef.current?.focus();
     };
     
     const handleOpenEditModal = (opening: OriginalOpening) => {
-        setEditingItem({
-            id: opening.id,
-            opened: String(opening.opened),
-            originalTypeId: opening.originalTypeId,
-            supplierId: opening.supplierId,
-            batchNumber: opening.batchNumber,
-        });
+        setEditingItem(opening);
         setIsEditModalOpen(true);
     };
     
@@ -187,20 +204,21 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
     const handleUpdateOpening = () => {
         if (!editingItem) return;
         
-        const originalOpening = state.originalOpenings.find(o => o.id === editingItem.id);
-        if (!originalOpening) return;
-        
         const openedNum = Number(editingItem.opened);
         if (isNaN(openedNum) || openedNum <= 0) {
             alert("Please enter a valid, positive quantity.");
             return;
         }
+        
+        const originalOpening = state.originalOpenings.find(o => o.id === editingItem.id);
+        if (!originalOpening) return;
 
-        const stock = rawMaterialStock[originalOpening.supplierId]?.[originalOpening.originalTypeId]?.[originalOpening.batchNumber] || 0;
-        const availableStockForEdit = stock + originalOpening.opened;
+        const key = `${originalOpening.supplierId || 'none'}|${originalOpening.subSupplierId || 'none'}|${originalOpening.originalTypeId || 'none'}|${originalOpening.originalProductId || 'none'}`;
+        const currentStock = stockByCombination.get(key) || 0;
+        const availableStockForEdit = currentStock + originalOpening.opened;
 
         if (openedNum > availableStockForEdit) {
-           alert(`Warning: You are updating to ${openedNum} units, but only ${availableStockForEdit} are available in total for this batch. This will result in negative stock.`);
+           alert(`Warning: You are updating to ${openedNum} units, but only ${availableStockForEdit} are available in total for this combination. This will result in negative stock.`);
         }
         
         const originalType = state.originalTypes.find(ot => ot.id === originalOpening.originalTypeId);
@@ -230,36 +248,30 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
             showNotification("Entry deleted successfully.");
         }
     };
-    
-    const originalTypeForEditing = useMemo(() => {
-        if (!editingItem) return null;
-        return state.originalTypes.find(ot => ot.id === editingItem.originalTypeId);
-    }, [editingItem, state.originalTypes]);
 
+    const getFullCombinationName = (item: OriginalOpening) => {
+        const supplier = state.suppliers.find(s => s.id === item.supplierId)?.name;
+        const subSupplier = state.subSuppliers.find(s => s.id === item.subSupplierId)?.name;
+        const type = state.originalTypes.find(s => s.id === item.originalTypeId)?.name;
+        const product = state.originalProducts.find(s => s.id === item.originalProductId)?.name;
+        return [supplier, subSupplier, type, product].filter(Boolean).join(' / ');
+    };
+    
     return (
         <div className="grid grid-cols-1 md:grid-cols-10 gap-8">
             <div className="md:col-span-3">
                  <h3 className="text-lg font-bold text-slate-700 mb-4">New Opening Entry</h3>
                  <form onSubmit={handleSubmit} className="space-y-4">
                     <div><label className="block text-sm font-medium text-slate-700">Date</label><input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} min={minDate} className="mt-1 w-full p-2 rounded-md"/></div>
-                    <div><label className="block text-sm font-medium text-slate-700">Supplier</label><select ref={supplierRef} value={formData.supplierId} onChange={e => setFormData({...formData, supplierId: e.target.value, originalTypeId: '', batchNumber: '', opened: ''})} className="mt-1 w-full p-2 rounded-md"><option value="">Select Supplier with Stock</option>{suppliersWithStock.map(s => <option key={s.id} value={s.id}>{s.name} ({s.id})</option>)}</select></div>
-                    <div><label className="block text-sm font-medium text-slate-700">Original Type</label>
-                        <select ref={originalTypeRef} value={formData.originalTypeId} onChange={e => setFormData({...formData, originalTypeId: e.target.value, batchNumber: '', opened: ''})} className="mt-1 w-full p-2 rounded-md" disabled={!formData.supplierId}>
-                            <option value="">Select Type</option>
-                            {supplierOriginalTypes.map(ot => <option key={ot.id} value={ot.id}>{ot.name}</option>)}
-                        </select>
-                    </div>
-                     <div><label className="block text-sm font-medium text-slate-700">Batch Number</label>
-                        <select ref={batchNumberRef} value={formData.batchNumber} onChange={e => setFormData({...formData, batchNumber: e.target.value, opened: ''})} className="mt-1 w-full p-2 rounded-md" disabled={!formData.originalTypeId}>
-                            <option value="">Select Batch</option>
-                            {availableBatches.map(b => <option key={b.batch} value={b.batch}>{b.batch} (Stock: {b.stock})</option>)}
-                        </select>
-                    </div>
+                    <div><label className="block text-sm font-medium text-slate-700">Supplier</label><select ref={supplierRef} value={formData.supplierId} onChange={e => setFormData({...formData, supplierId: e.target.value})} className="mt-1 w-full p-2 rounded-md"><option value="">Select Supplier</option>{availableSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                    <div><label className="block text-sm font-medium text-slate-700">Sub-Supplier</label><select value={formData.subSupplierId} onChange={e => setFormData({...formData, subSupplierId: e.target.value})} disabled={!formData.supplierId || availableSubSuppliers.length === 0} className="mt-1 w-full p-2 rounded-md"><option value="">None / Direct</option>{availableSubSuppliers.map(ot => <option key={ot.id} value={ot.id}>{ot.name}</option>)}</select></div>
+                    <div><label className="block text-sm font-medium text-slate-700">Original Type</label><select value={formData.originalTypeId} onChange={e => setFormData({...formData, originalTypeId: e.target.value})} className="mt-1 w-full p-2 rounded-md" disabled={!formData.supplierId}><option value="">Select Type</option>{availableOriginalTypes.map(ot => <option key={ot.id} value={ot.id}>{ot.name}</option>)}</select></div>
+                    <div><label className="block text-sm font-medium text-slate-700">Original Product</label><select value={formData.originalProductId} onChange={e => setFormData({...formData, originalProductId: e.target.value})} className="mt-1 w-full p-2 rounded-md" disabled={!formData.originalTypeId || availableOriginalProducts.length === 0}><option value="">None / Not Applicable</option>{availableOriginalProducts.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}</select></div>
                      <div>
                         <label className="block text-sm font-medium text-slate-700">Available Stock (units)</label>
                         <input type="number" value={availableStock} readOnly className="mt-1 w-full p-2 rounded-md bg-slate-200 text-slate-500" />
                     </div>
-                    <div><label className="block text-sm font-medium text-slate-700">Opened (units)</label><input type="number" value={formData.opened} onChange={e => setFormData({...formData, opened: e.target.value})} className="mt-1 w-full p-2 rounded-md" min="1" disabled={!formData.batchNumber}/></div>
+                    <div><label className="block text-sm font-medium text-slate-700">Opened (units)</label><input type="number" value={formData.opened} onChange={e => setFormData({...formData, opened: e.target.value})} className="mt-1 w-full p-2 rounded-md" min="1" disabled={!formData.originalTypeId}/></div>
                     <div><label className="block text-sm font-medium text-slate-700">Total Kg</label><input type="number" value={totalKg} readOnly className="mt-1 w-full p-2 rounded-md bg-slate-200 text-slate-500"/></div>
                     <button type="submit" className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700">Submit The Entry</button>
                 </form>
@@ -271,9 +283,7 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
                         <table className="w-full text-left table-auto text-sm">
                             <thead className="sticky top-0 bg-slate-100 z-10">
                                 <tr>
-                                    <th className="p-2 font-semibold text-slate-600">Supplier</th>
-                                    <th className="p-2 font-semibold text-slate-600">Original Type</th>
-                                    <th className="p-2 font-semibold text-slate-600">Batch #</th>
+                                    <th className="p-2 font-semibold text-slate-600">Combination</th>
                                     <th className="p-2 font-semibold text-slate-600 text-right">Opened</th>
                                     <th className="p-2 font-semibold text-slate-600 text-right">Total Kg</th>
                                     {userProfile?.isAdmin && <th className="p-2 font-semibold text-slate-600 text-right">Actions</th>}
@@ -282,9 +292,7 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
                             <tbody>
                                 {openingsForDate.map((op) => (
                                     <tr key={op.id} className="border-b hover:bg-slate-50">
-                                        <td className="p-2 text-slate-700">{op.supplierName}</td>
-                                        <td className="p-2 text-slate-700">{op.originalTypeName}</td>
-                                        <td className="p-2 text-slate-700 font-mono">{op.batchNumber}</td>
+                                        <td className="p-2 text-slate-700">{getFullCombinationName(op)}</td>
                                         <td className="p-2 text-slate-700 text-right font-medium">{op.opened.toLocaleString()}</td>
                                         <td className="p-2 text-slate-700 text-right">{op.totalKg.toLocaleString()}</td>
                                         {userProfile?.isAdmin && (
@@ -307,15 +315,9 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
                 <Modal isOpen={isEditModalOpen} onClose={handleCloseEditModal} title="Edit Opening Entry" isForm>
                     <div className="space-y-4">
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Original Type</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Stock Combination</label>
                             <p className="p-2 border border-slate-200 rounded-md bg-slate-100 text-slate-600">
-                                {originalTypeForEditing?.name} ({editingItem.originalTypeId})
-                            </p>
-                        </div>
-                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Batch Number</label>
-                            <p className="p-2 border border-slate-200 rounded-md bg-slate-100 text-slate-600 font-mono">
-                                {editingItem.batchNumber}
+                                {getFullCombinationName(editingItem)}
                             </p>
                         </div>
                         <div>
@@ -323,7 +325,7 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
                              <input 
                                 type="number" 
                                 value={editingItem.opened} 
-                                onChange={e => setEditingItem({...editingItem, opened: e.target.value})}
+                                onChange={e => setEditingItem(prev => prev ? {...prev, opened: Number(e.target.value) || 0} : null)}
                                 className="mt-1 w-full p-2 rounded-md"
                                 autoFocus
                             />
@@ -521,13 +523,14 @@ const ProductionForm: React.FC<{
         setSummaryData([]);
     };
 
+    // FIX: Changed accumulator properties to match initial value and used correct variable names in JSX
     const { totalBalesForDate, totalKgForDate } = useMemo(() => {
         return stagedProductions.reduce((acc, prod) => {
             if (prod.baleSize !== 'N/A') {
-                acc.totalBales += prod.quantityProduced;
-                acc.totalKg += prod.quantityProduced * (prod.baleSize as number);
+                acc.totalBalesForDate += prod.quantityProduced;
+                acc.totalKgForDate += prod.quantityProduced * (prod.baleSize as number);
             } else {
-                acc.totalKg += prod.quantityProduced;
+                acc.totalKgForDate += prod.quantityProduced;
             }
             return acc;
         }, { totalBalesForDate: 0, totalKgForDate: 0 });
@@ -561,6 +564,7 @@ const ProductionForm: React.FC<{
             <div className="md:col-span-7">
                 <h3 className="text-lg font-bold text-slate-700 mb-2">Staged Entries for {formData.date}</h3>
                 <div className="flex justify-end text-sm font-semibold text-slate-600 mb-2 space-x-4">
+                    {/* FIX: Use correct variable names from useMemo */}
                     <span>Total Bales: {totalBalesForDate.toLocaleString()}</span>
                     <span>Total Kg: {totalKgForDate.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                 </div>

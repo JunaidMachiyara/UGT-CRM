@@ -374,8 +374,9 @@ const Dashboard: React.FC<DashboardProps> = ({ setModule }) => {
             let invoiceValue = 0;
             inv.items.forEach(item => {
                 const itemDetails = state.items.find(i => i.id === item.itemId);
+                // FIX: Use itemDetails.packingType, as item (InvoiceItem) doesn't have this property.
                 if (itemDetails && item.rate !== undefined) {
-                    const totalKg = item.packingType !== PackingType.Kg ? item.quantity * itemDetails.baleSize : item.quantity;
+                    const totalKg = itemDetails.packingType !== PackingType.Kg ? item.quantity * itemDetails.baleSize : item.quantity;
                     const itemValueUSD = totalKg * item.rate * (item.conversionRate || 1);
                     
                     invoiceValue += itemValueUSD;

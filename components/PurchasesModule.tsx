@@ -81,6 +81,8 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
             freightForwarderId: '', freightAmount: undefined,
             clearingAgentId: '', clearingAmount: undefined, 
             commissionAgentId: '', commissionAmount: undefined,
+            subSupplierId: '',
+            originalProductId: '',
         };
     };
 
@@ -99,13 +101,28 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
         return state.subDivisions.filter(sd => sd.divisionId === formData.divisionId);
     }, [formData.divisionId, state.subDivisions]);
 
+    const availableSubSuppliers = useMemo(() => {
+        if (!formData.supplierId) return [];
+        return state.subSuppliers.filter(ss => ss.supplierId === formData.supplierId);
+    }, [formData.supplierId, state.subSuppliers]);
+
+    const availableOriginalProducts = useMemo(() => {
+        if (!formData.originalTypeId) return [];
+        return state.originalProducts.filter(op => op.originalTypeId === formData.originalTypeId);
+    }, [formData.originalTypeId, state.originalProducts]);
+
     useEffect(() => {
         const supplier = state.suppliers.find(s => s.id === formData.supplierId);
         setFormData(prev => ({
             ...prev,
             currency: supplier?.defaultCurrency || Currency.Dollar,
+            subSupplierId: '',
         }));
     }, [formData.supplierId, state.suppliers]);
+    
+    useEffect(() => {
+        setFormData(prev => ({ ...prev, originalProductId: '' }));
+    }, [formData.originalTypeId]);
 
     // Effects to clear amounts when default agents are selected
     useEffect(() => {
@@ -239,7 +256,7 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
             <form onSubmit={handlePrepareSummary} className="space-y-6">
                 <div className="border rounded-lg p-4 bg-white">
                     <h3 className="text-lg font-semibold text-slate-800 mb-4 border-b pb-2">Core Information</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div><label className="block text-sm font-medium text-slate-700">Date</label><input type="date" name="date" value={formData.date} onChange={handleChange} required className={`${inputClasses}`}/></div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700">Supplier</label>
@@ -248,8 +265,22 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
                                 {state.suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                             </select>
                         </div>
-                        <div><label className="block text-sm font-medium text-slate-700">Batch Number</label><input type="text" name="batchNumber" value={formData.batchNumber} onChange={handleChange} className={`${inputClasses}`}/></div>
+                         <div>
+                            <label className="block text-sm font-medium text-slate-700">Sub-Supplier</label>
+                            <select name="subSupplierId" value={formData.subSupplierId} onChange={handleChange} disabled={!formData.supplierId || availableSubSuppliers.length === 0} className={`${inputClasses}`}>
+                                <option value="">Select Sub-Supplier (Optional)</option>
+                                {availableSubSuppliers.map(ss => <option key={ss.id} value={ss.id}>{ss.name}</option>)}
+                            </select>
+                        </div>
+                        <div><label className="block text-sm font-medium text-slate-700">Batch Number</label><input type="text" name="batchNumber" value={formData.batchNumber} onChange={handleChange} disabled className={`${inputClasses} bg-slate-200`}/></div>
                         <div><label className="block text-sm font-medium text-slate-700">Original Type</label><select name="originalTypeId" value={formData.originalTypeId} onChange={handleChange} required className={`${inputClasses}`}><option value="">Select Type</option>{state.originalTypes.map(ot => <option key={ot.id} value={ot.id}>{ot.name}</option>)}</select></div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700">Original Product</label>
+                            <select name="originalProductId" value={formData.originalProductId} onChange={handleChange} disabled={!formData.originalTypeId || availableOriginalProducts.length === 0} className={`${inputClasses}`}>
+                                <option value="">Select Product (Optional)</option>
+                                {availableOriginalProducts.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -395,7 +426,9 @@ const PurchaseSummaryModal: React.FC<PurchaseSummaryModalProps> = ({ isOpen, onC
 const PrintablePurchaseVoucher: React.FC<{ purchase: OriginalPurchased, state: AppState }> = ({ purchase, state }) => {
     const { supplierId, originalTypeId, date, rate, quantityPurchased, currency, conversionRate, discountSurcharge } = purchase;
     const supplier = state.suppliers.find(s => s.id === supplierId);
+    const subSupplier = state.subSuppliers.find(ss => ss.id === purchase.subSupplierId);
     const originalType = state.originalTypes.find(ot => ot.id === originalTypeId);
+    const originalProduct = state.originalProducts.find(op => op.id === purchase.originalProductId);
     
     const itemValueFC = quantityPurchased * rate;
     const itemValueUSD = itemValueFC * (conversionRate || 1) + (discountSurcharge || 0);
@@ -417,7 +450,7 @@ const PrintablePurchaseVoucher: React.FC<{ purchase: OriginalPurchased, state: A
             <h2 className="text-xl font-bold text-center text-slate-900">Purchase Voucher</h2>
             <div className="grid grid-cols-2 gap-x-8 gap-y-1 mt-4 border-b pb-2 text-slate-700">
                 <p><strong>Date:</strong> {date}</p>
-                <p><strong>Supplier:</strong> {supplier?.name}</p>
+                <p><strong>Supplier:</strong> {supplier?.name} {subSupplier ? `(${subSupplier.name})` : ''}</p>
                 <p><strong>Batch No:</strong> {purchase.batchNumber}</p>
                 <p><strong>Container No:</strong> {purchase.containerNumber || 'N/A'}</p>
             </div>
@@ -432,7 +465,7 @@ const PrintablePurchaseVoucher: React.FC<{ purchase: OriginalPurchased, state: A
                 </thead>
                 <tbody>
                     <tr>
-                        <td className="p-1 text-slate-800">{originalType?.name}</td>
+                        <td className="p-1 text-slate-800">{originalType?.name} {originalProduct ? `- ${originalProduct.name}` : ''}</td>
                         <td className="p-1 text-slate-800 text-right">{quantityPurchased.toLocaleString()}</td>
                         <td className="p-1 text-slate-800 text-right">{rate.toFixed(2)}</td>
                         <td className="p-1 text-slate-800 text-right">{itemValueFC.toFixed(2)}</td>

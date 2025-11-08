@@ -1,14 +1,34 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useData } from '../context/DataContext.tsx';
-import { generateInvoiceId } from '../utils/idGenerator.ts';
+import { generateInvoiceId } from '../utils/idGenerator.tsx';
 import { InvoiceItem, SalesInvoice, InvoiceStatus, PackingType, Module, UserProfile, AppState, Currency, JournalEntry, JournalEntryType } from '../types.ts';
 import Modal from './ui/Modal.tsx';
 import ItemSelector from './ui/ItemSelector.tsx';
+import CurrencyInput from './ui/CurrencyInput.tsx';
 
 interface SalesInvoiceProps {
     setModule: (module: Module) => void;
     userProfile: UserProfile | null;
 }
+
+const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; defaultOpen?: boolean }> = ({ title, children, defaultOpen = false }) => {
+    const [isOpen, setIsOpen] = useState(defaultOpen);
+    return (
+        <div className="border rounded-md bg-slate-50/50">
+            <button
+                type="button"
+                className="w-full flex justify-between items-center p-3 bg-slate-100 hover:bg-slate-200 transition-colors rounded-t-md"
+                onClick={() => setIsOpen(!isOpen)}
+            >
+                <h4 className="font-semibold text-slate-700">{title}</h4>
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-slate-500 transform transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+            {isOpen && <div className="p-4 space-y-4">{children}</div>}
+        </div>
+    );
+};
 
 const Notification: React.FC<{ message: string; onTimeout: () => void }> = ({ message, onTimeout }) => {
     useEffect(() => {
@@ -52,7 +72,12 @@ const PrintableInvoiceContent: React.FC<{ invoice: SalesInvoice | null; state: A
     };
     
     const itemsTotal = invoice.items.reduce((sum, item) => sum + calculateItemValue(item), 0);
-    const grandTotal = itemsTotal + (invoice.freightAmount || 0) + (invoice.customCharges || 0);
+    
+    const freightInUSD = (invoice.freightAmount || 0) * (invoice.freightConversionRate || 1);
+    const clearingInUSD = (invoice.customCharges || 0) * (invoice.customChargesConversionRate || 1);
+    const commissionInUSD = (invoice.commissionAmount || 0) * (invoice.commissionConversionRate || 1);
+    
+    const grandTotal = itemsTotal + freightInUSD + clearingInUSD + commissionInUSD;
     const currency = invoice.items.length > 0 ? (invoice.items[0].currency || Currency.Dollar) : Currency.Dollar;
 
     return (
@@ -100,13 +125,19 @@ const PrintableInvoiceContent: React.FC<{ invoice: SalesInvoice | null; state: A
                     {invoice.freightAmount && (
                         <tr className="font-medium">
                             <td colSpan={3} className="p-2 text-right text-slate-800">Freight Charges</td>
-                            <td className="p-2 text-right text-slate-800">{invoice.freightAmount.toFixed(2)}</td>
+                            <td className="p-2 text-right text-slate-800">{freightInUSD.toFixed(2)}</td>
                         </tr>
                     )}
                     {invoice.customCharges && (
                         <tr className="font-medium">
                             <td colSpan={3} className="p-2 text-right text-slate-800">Customs Charges</td>
-                            <td className="p-2 text-right text-slate-800">{invoice.customCharges.toFixed(2)}</td>
+                            <td className="p-2 text-right text-slate-800">{clearingInUSD.toFixed(2)}</td>
+                        </tr>
+                    )}
+                     {invoice.commissionAmount && (
+                        <tr className="font-medium">
+                            <td colSpan={3} className="p-2 text-right text-slate-800">Commission</td>
+                            <td className="p-2 text-right text-slate-800">{commissionInUSD.toFixed(2)}</td>
                         </tr>
                     )}
                     <tr className="font-bold bg-slate-100">
@@ -140,6 +171,16 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
     const [commissionAmount, setCommissionAmount] = useState<number | ''>('');
     const [discountSurcharge, setDiscountSurcharge] = useState<number | ''>('');
     
+    const [containerNumber, setContainerNumber] = useState('');
+    const [freightForwarderId, setFreightForwarderId] = useState('');
+    const [freightAmount, setFreightAmount] = useState<number | ''>('');
+    const [clearingAgentId, setClearingAgentId] = useState('');
+    const [customCharges, setCustomCharges] = useState<number | ''>('');
+    
+    const [freightCurrencyData, setFreightCurrencyData] = useState({ currency: Currency.Dollar, conversionRate: 1 });
+    const [clearingCurrencyData, setClearingCurrencyData] = useState({ currency: Currency.Dollar, conversionRate: 1 });
+    const [commissionCurrencyData, setCommissionCurrencyData] = useState({ currency: Currency.Dollar, conversionRate: 1 });
+    
     const [currentItemId, setCurrentItemId] = useState('');
     const [currentQuantity, setCurrentQuantity] = useState<number | ''>('');
     const [currentInvoiceItems, setCurrentInvoiceItems] = useState<(Omit<InvoiceItem, 'quantity'> & { quantity: number | '' })[]>([]);
@@ -160,8 +201,6 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
 
     const customerRef = useRef<HTMLSelectElement>(null);
     const itemRef = useRef<HTMLInputElement>(null);
-    const subdivisionRef = useRef<HTMLSelectElement>(null);
-    const commissionAgentRef = useRef<HTMLSelectElement>(null);
     const commissionAmountRef = useRef<HTMLInputElement>(null);
     const minDate = userProfile?.isAdmin ? '' : new Date().toISOString().split('T')[0];
     
@@ -176,7 +215,6 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         if (customerId && !invoiceId && !editingInvoice) {
             setInvoiceId(generateInvoiceId(state.nextInvoiceNumber));
             setInvoiceDate(new Date().toISOString().split('T')[0]);
-            setTimeout(() => subdivisionRef.current?.focus(), 100);
         }
         
         if (customerId) {
@@ -202,6 +240,10 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         }
     }, [customerId, invoiceId, state.nextInvoiceNumber, state.salesInvoices, state.customers, editingInvoice]);
     
+    useEffect(() => { if (!freightForwarderId) setFreightAmount(''); }, [freightForwarderId]);
+    useEffect(() => { if (!clearingAgentId) setCustomCharges(''); }, [clearingAgentId]);
+    useEffect(() => { if (!commissionAgentId) setCommissionAmount(''); }, [commissionAgentId]);
+
     useEffect(() => {
         if (invoiceToDownload) {
             const generatePdf = async () => {
@@ -242,8 +284,6 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         setInvoiceDate('');
         setDivisionId('');
         setSubDivisionId('');
-        setCommissionAgentId('');
-        setCommissionAmount('');
         setDiscountSurcharge('');
         setCurrentItemId('');
         setCurrentQuantity('');
@@ -251,6 +291,16 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         setCompletedInvoice(null);
         setLastInvoiceForCustomer(null);
         setEditingInvoice(null);
+        setContainerNumber('');
+        setFreightForwarderId('');
+        setFreightAmount('');
+        setClearingAgentId('');
+        setCustomCharges('');
+        setCommissionAgentId('');
+        setCommissionAmount('');
+        setFreightCurrencyData({ currency: Currency.Dollar, conversionRate: 1 });
+        setClearingCurrencyData({ currency: Currency.Dollar, conversionRate: 1 });
+        setCommissionCurrencyData({ currency: Currency.Dollar, conversionRate: 1 });
     };
 
     const handleAddItem = (e: React.FormEvent) => {
@@ -311,20 +361,36 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         const { totalBales, totalKg } = calculateTotals(itemsWithNumericQuantities);
 
         const newInvoice: SalesInvoice = {
-            id: invoiceId, date: invoiceDate, customerId, items: itemsWithNumericQuantities, 
+            id: invoiceId,
+            date: invoiceDate,
+            customerId,
+            items: itemsWithNumericQuantities,
             status: editingInvoice?.status || InvoiceStatus.Unposted,
-            totalBales, totalKg,
+            totalBales,
+            totalKg,
             divisionId: divisionId || undefined,
             subDivisionId: subDivisionId || undefined,
+            containerNumber: containerNumber || undefined,
+            discountSurcharge: Number(discountSurcharge) || undefined,
+            
+            freightForwarderId: freightForwarderId || undefined,
+            freightAmount: Number(freightAmount) || undefined,
+            freightCurrency: freightCurrencyData.currency,
+            freightConversionRate: freightCurrencyData.conversionRate,
+
+            clearingAgentId: clearingAgentId || undefined,
+            customCharges: Number(customCharges) || undefined,
+            customChargesCurrency: clearingCurrencyData.currency,
+            customChargesConversionRate: clearingCurrencyData.conversionRate,
+
             commissionAgentId: commissionAgentId || undefined,
             commissionAmount: Number(commissionAmount) > 0 ? Number(commissionAmount) : undefined,
-            discountSurcharge: Number(discountSurcharge) || undefined,
-            ...(editingInvoice && {
-                freightForwarderId: editingInvoice.freightForwarderId,
-                freightAmount: editingInvoice.freightAmount,
-                customCharges: editingInvoice.customCharges,
-            }),
+            commissionCurrency: commissionCurrencyData.currency,
+            commissionConversionRate: commissionCurrencyData.conversionRate,
+            
+            sourceOrderId: editingInvoice?.sourceOrderId,
         };
+
         setCompletedInvoice(newInvoice);
         setHasPrinted(false);
         setIsSummaryModalOpen(true);
@@ -386,30 +452,6 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         });
         setCurrentInvoiceItems(updatedItems as (Omit<InvoiceItem, "quantity"> & { quantity: number | ""; })[]);
     };
-
-    const handleSubdivisionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        setSubDivisionId(e.target.value);
-        commissionAgentRef.current?.focus();
-    };
-    
-    const handleCommissionAgentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const value = e.target.value;
-        setCommissionAgentId(value);
-        setTimeout(() => {
-            if (value && value !== 'CA-000') {
-                commissionAmountRef.current?.focus();
-            } else {
-                itemRef.current?.focus();
-            }
-        }, 0);
-    };
-
-    const handleCommissionAmountKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            itemRef.current?.focus();
-        }
-    };
     
     const handleEditInvoice = (invoice: SalesInvoice) => {
         setEditingInvoice(invoice);
@@ -418,9 +460,21 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         setInvoiceDate(invoice.date);
         setDivisionId(invoice.divisionId || '');
         setSubDivisionId(invoice.subDivisionId || '');
+        setDiscountSurcharge(invoice.discountSurcharge || '');
+        setContainerNumber(invoice.containerNumber || '');
+        
+        setFreightForwarderId(invoice.freightForwarderId || '');
+        setFreightAmount(invoice.freightAmount || '');
+        setFreightCurrencyData({ currency: invoice.freightCurrency || Currency.Dollar, conversionRate: invoice.freightConversionRate || 1 });
+        
+        setClearingAgentId(invoice.clearingAgentId || '');
+        setCustomCharges(invoice.customCharges || '');
+        setClearingCurrencyData({ currency: invoice.customChargesCurrency || Currency.Dollar, conversionRate: invoice.customChargesConversionRate || 1 });
+        
         setCommissionAgentId(invoice.commissionAgentId || '');
         setCommissionAmount(invoice.commissionAmount || '');
-        setDiscountSurcharge(invoice.discountSurcharge || '');
+        setCommissionCurrencyData({ currency: invoice.commissionCurrency || Currency.Dollar, conversionRate: invoice.commissionConversionRate || 1 });
+
         setCurrentInvoiceItems(invoice.items.map(i => {
             const itemDetails = state.items.find(item => item.id === i.itemId);
             return {
@@ -633,8 +687,8 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
 
             {subModule === 'new' && (
                 <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end p-4 border rounded-md bg-white">
-                        <div className="md:col-span-2">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end p-4 border rounded-md bg-white">
+                        <div className="md:col-span-1">
                             <label className="block text-sm font-medium text-slate-700">Customer</label>
                             <select ref={customerRef} value={customerId} onChange={e => setCustomerId(e.target.value)} disabled={!!editingInvoice} className="mt-1 w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-200">
                                 <option value="">Select Customer</option>
@@ -649,36 +703,38 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
                             <label className="block text-sm font-medium text-slate-700">Date</label>
                             <input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} min={minDate} disabled={!invoiceId} className="mt-1 w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-200"/>
                         </div>
-                        <div className="md:col-span-1">
-                            <label className="block text-sm font-medium text-slate-700">Division</label>
-                            <select name="divisionId" value={divisionId} onChange={e => setDivisionId(e.target.value)} className="mt-1 w-full p-2 border border-slate-300 rounded-md">
-                                <option value="">Select Division</option>
-                                {state.divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                            </select>
-                        </div>
-                        <div className="md:col-span-1">
-                            <label className="block text-sm font-medium text-slate-700">Sub Division</label>
-                            <select ref={subdivisionRef} name="subDivisionId" value={subDivisionId} onChange={handleSubdivisionChange} disabled={!divisionId || availableSubDivisions.length === 0} className="mt-1 w-full p-2 border border-slate-300 rounded-md">
-                                <option value="">Select Sub-Division</option>
-                                {availableSubDivisions.map(sd => <option key={sd.id} value={sd.id}>{sd.name}</option>)}
-                            </select>
-                        </div>
-                        <div className="md:col-span-1">
-                            <label className="block text-sm font-medium text-slate-700">Commission Agent</label>
-                            <select ref={commissionAgentRef} name="commissionAgentId" value={commissionAgentId} onChange={handleCommissionAgentChange} className="mt-1 w-full p-2 border border-slate-300 rounded-md">
-                                <option value="">Select Agent</option>
-                                {state.commissionAgents.map(ca => <option key={ca.id} value={ca.id}>{ca.name}</option>)}
-                            </select>
-                        </div>
-                        <div className="md:col-span-1">
-                            <label className="block text-sm font-medium text-slate-700">Commission Amount ($)</label>
-                            <input ref={commissionAmountRef} type="number" name="commissionAmount" value={commissionAmount} onChange={e => setCommissionAmount(e.target.value === '' ? '' : Number(e.target.value))} onKeyDown={handleCommissionAmountKeyDown} disabled={!commissionAgentId} className="mt-1 w-full p-2 border border-slate-300 rounded-md"/>
-                        </div>
-                        <div className="md:col-span-1">
-                            <label className="block text-sm font-medium text-slate-700">Discount(-) / Surcharge(+)</label>
-                            <input type="number" name="discountSurcharge" value={discountSurcharge} onChange={e => setDiscountSurcharge(e.target.value === '' ? '' : Number(e.target.value))} className="mt-1 w-full p-2 border border-slate-300 rounded-md" placeholder="Amount in USD"/>
-                        </div>
                     </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <CollapsibleSection title="Logistics & Destination">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-medium text-slate-700">Container #</label><input type="text" value={containerNumber} onChange={e => setContainerNumber(e.target.value)} className="mt-1 w-full p-2 rounded-md" /></div>
+                                <div><label className="block text-sm font-medium text-slate-700">Division</label><select value={divisionId} onChange={e => setDivisionId(e.target.value)} className="mt-1 w-full p-2 rounded-md"><option value="">Select Division</option>{state.divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium text-slate-700">Sub Division</label><select value={subDivisionId} onChange={e => setSubDivisionId(e.target.value)} disabled={!divisionId || availableSubDivisions.length === 0} className="mt-1 w-full p-2 rounded-md"><option value="">Select Sub-Division</option>{availableSubDivisions.map(sd => <option key={sd.id} value={sd.id}>{sd.name}</option>)}</select></div>
+                                <div><label className="block text-sm font-medium text-slate-700">Discount(-) / Surcharge(+)</label><input type="number" value={discountSurcharge} onChange={e => setDiscountSurcharge(e.target.value === '' ? '' : Number(e.target.value))} className="mt-1 w-full p-2 rounded-md" placeholder="Amount in USD"/></div>
+                            </div>
+                        </CollapsibleSection>
+                        <CollapsibleSection title="Additional Costs">
+                             <div className="space-y-4">
+                                <div><label className="block text-sm font-medium text-slate-700">Freight Forwarder</label><select value={freightForwarderId} onChange={e => setFreightForwarderId(e.target.value)} className="mt-1 w-full p-2 rounded-md"><option value="">Select...</option>{state.freightForwarders.map(ff => <option key={ff.id} value={ff.id}>{ff.name}</option>)}</select></div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input type="number" value={freightAmount} placeholder="Freight Amount" onChange={e => setFreightAmount(e.target.value === '' ? '' : Number(e.target.value))} disabled={!freightForwarderId} className="w-full p-2 rounded-md" />
+                                    <CurrencyInput value={freightCurrencyData} onChange={setFreightCurrencyData} disabled={!freightForwarderId} />
+                                </div>
+                                <div><label className="block text-sm font-medium text-slate-700">Clearing Agent</label><select value={clearingAgentId} onChange={e => setClearingAgentId(e.target.value)} className="mt-1 w-full p-2 rounded-md"><option value="">Select...</option>{state.clearingAgents.map(ca => <option key={ca.id} value={ca.id}>{ca.name}</option>)}</select></div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input type="number" value={customCharges} placeholder="Clearing Amount" onChange={e => setCustomCharges(e.target.value === '' ? '' : Number(e.target.value))} disabled={!clearingAgentId} className="w-full p-2 rounded-md" />
+                                    <CurrencyInput value={clearingCurrencyData} onChange={setClearingCurrencyData} disabled={!clearingAgentId} />
+                                </div>
+                                <div><label className="block text-sm font-medium text-slate-700">Commission Agent</label><select value={commissionAgentId} onChange={e => setCommissionAgentId(e.target.value)} className="mt-1 w-full p-2 rounded-md"><option value="">Select...</option>{state.commissionAgents.map(ca => <option key={ca.id} value={ca.id}>{ca.name}</option>)}</select></div>
+                                 <div className="grid grid-cols-2 gap-2">
+                                    <input type="number" value={commissionAmount} placeholder="Commission Amount" onChange={e => setCommissionAmount(e.target.value === '' ? '' : Number(e.target.value))} disabled={!commissionAgentId} className="w-full p-2 rounded-md" />
+                                    <CurrencyInput value={commissionCurrencyData} onChange={setCommissionCurrencyData} disabled={!commissionAgentId} />
+                                </div>
+                             </div>
+                        </CollapsibleSection>
+                    </div>
+
                     {invoiceId && renderInvoiceBody()}
                 </div>
             )}

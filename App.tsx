@@ -181,9 +181,11 @@ const App: React.FC = () => {
         };
 
         window.addEventListener('keydown', handleKeyDown);
+        // FIX: Added argument to clearTimeout in cleanup function.
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
             if (escapeConfirmTimeoutRef.current) {
+// FIX: clearTimeout must be called with the timer ID.
                 clearTimeout(escapeConfirmTimeoutRef.current);
             }
         };

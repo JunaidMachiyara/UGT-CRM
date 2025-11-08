@@ -6,6 +6,20 @@ import Modal from './ui/Modal.tsx';
 import ItemSelector from './ui/ItemSelector.tsx';
 import CurrencyInput from './ui/CurrencyInput.tsx';
 
+// FIX: Added a Notification component to handle its own timeout via useEffect, preventing memory leaks.
+const Notification: React.FC<{ message: string; onTimeout: () => void }> = ({ message, onTimeout }) => {
+    useEffect(() => {
+        const timer = setTimeout(onTimeout, 3000);
+        return () => clearTimeout(timer);
+    }, [onTimeout]);
+
+    return (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 bg-green-500 text-white py-2 px-4 rounded-lg shadow-lg z-50 animate-fade-in-out">
+            {message}
+        </div>
+    );
+};
+
 interface OngoingOrdersProps {
     setModule: (module: Module) => void;
     userProfile: UserProfile | null;
@@ -19,7 +33,6 @@ const OngoingOrdersModule: React.FC<OngoingOrdersProps> = ({ userProfile }) => {
 
     const showNotification = (message: string) => {
         setNotification(message);
-        setTimeout(() => setNotification(null), 3000);
     };
 
     const handleOrderShipped = () => {
@@ -30,7 +43,7 @@ const OngoingOrdersModule: React.FC<OngoingOrdersProps> = ({ userProfile }) => {
 
     return (
         <div className="space-y-6">
-            {notification && <div className="fixed top-5 left-1/2 -translate-x-1/2 bg-green-500 text-white py-2 px-4 rounded-lg shadow-lg z-50">{notification}</div>}
+            {notification && <Notification message={notification} onTimeout={() => setNotification(null)} />}
             
             <div className="bg-white p-4 rounded-lg shadow-md flex items-center space-x-2">
                 <h2 className="text-xl font-bold text-slate-700 mr-4">Ongoing Orders</h2>

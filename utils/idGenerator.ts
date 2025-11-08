@@ -1,4 +1,4 @@
-import { Customer, Supplier, Bank, OriginalType, Division, Account, LoanAccount, CapitalAccount, InvestmentAccount, CashAccount, ExpenseAccount, SubDivision, FreightForwarder, ClearingAgent, CommissionAgent, Employee, Section, Category, Vehicle, Warehouse, Item } from '../types.ts';
+import { Customer, Supplier, Bank, OriginalType, Division, Account, LoanAccount, CapitalAccount, InvestmentAccount, CashAccount, ExpenseAccount, SubDivision, FreightForwarder, ClearingAgent, CommissionAgent, Employee, Section, Category, Vehicle, Warehouse, Item, OriginalProduct, SubSupplier } from '../types.ts';
 
 const generateId = (prefix: string, items: { id: string }[]): string => {
   const lastId = items.reduce((maxId, item) => {
@@ -33,6 +33,8 @@ export const generateExpenseAccountId = (accounts: ExpenseAccount[]): string => 
 export const generateEmployeeId = (items: Employee[]): string => generateId('EMP', items);
 export const generateVehicleId = (items: Vehicle[]): string => generateId('VEH', items);
 export const generateWarehouseId = (items: Warehouse[]): string => generateId('WH', items);
+export const generateOriginalProductId = (items: OriginalProduct[]): string => generateId('OP', items);
+export const generateSubSupplierId = (items: SubSupplier[]): string => generateId('SSUP', items);
 export const generateItemId = (items: Item[]): string => generateId('ITM', items);
 
 

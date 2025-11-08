@@ -40,6 +40,14 @@ export interface Supplier {
     subDivisionId?: string;
 }
 
+export interface SubSupplier {
+    id: string;
+    name: string;
+    supplierId: string;
+    contact?: string;
+    address?: string;
+}
+
 export interface CommissionAgent {
     id: string;
     name: string;
@@ -74,6 +82,13 @@ export interface OriginalType {
     name: string;
     packingType: PackingType;
     packingSize: number;
+}
+
+export interface OriginalProduct {
+    id: string;
+    name: string;
+    originalTypeId: string;
+    description?: string;
 }
 
 export interface Section {
@@ -221,8 +236,10 @@ export interface OriginalOpening {
     id: string;
     date: string;
     supplierId: string;
+    subSupplierId?: string;
     originalTypeId: string;
-    batchNumber: string;
+    originalProductId?: string;
+    batchNumber?: string;
     opened: number;
     totalKg: number;
     isPosted?: boolean;
@@ -232,7 +249,9 @@ export interface OriginalPurchased {
     id: string;
     date: string;
     supplierId: string;
+    subSupplierId?: string;
     originalTypeId: string;
+    originalProductId?: string;
     quantityPurchased: number;
     rate: number; // In selected currency
     currency: Currency;
@@ -288,15 +307,30 @@ export interface SalesInvoice {
     status: InvoiceStatus;
     totalBales: number;
     totalKg: number;
-    commissionAgentId?: string;
-    commissionAmount?: number;
     divisionId?: string;
     subDivisionId?: string;
-    freightForwarderId?: string;
-    freightAmount?: number;
-    customCharges?: number;
     discountSurcharge?: number; // In USD
     sourceOrderId?: string; // Link back to the OngoingOrder
+    containerNumber?: string;
+    
+    // Freight
+    freightForwarderId?: string;
+    freightAmount?: number;
+    freightCurrency?: Currency;
+    freightConversionRate?: number;
+    
+    // Clearing
+    clearingAgentId?: string;
+    customCharges?: number;
+    customChargesCurrency?: Currency;
+    customChargesConversionRate?: number;
+
+    // Commission
+    commissionAgentId?: string;
+    commissionAmount?: number;
+    commissionCurrency?: Currency;
+    commissionConversionRate?: number;
+
     directSalesDetails?: {
         originalPurchaseId: string;
         originalPurchaseCost: number;
@@ -483,9 +517,11 @@ export interface TestEntry {
 export interface AppState {
     customers: Customer[];
     suppliers: Supplier[];
+    subSuppliers: SubSupplier[];
     commissionAgents: CommissionAgent[];
     items: Item[];
     originalTypes: OriginalType[];
+    originalProducts: OriginalProduct[];
     divisions: Division[];
     subDivisions: SubDivision[];
     warehouses: Warehouse[];

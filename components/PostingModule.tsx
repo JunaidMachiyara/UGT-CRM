@@ -42,9 +42,13 @@ const PostingModule: React.FC<PostingModuleProps> = ({ setModule, userProfile })
             return acc;
         }, {} as Record<string, ItemDetails>);
         setItemDetails(initialDetails);
-        setFreightForwarderId('');
-        setFreightAmount('');
-        setCustomCharges('');
+        setFreightForwarderId(invoice.freightForwarderId || '');
+        
+        const freightInUSD = (invoice.freightAmount || 0) * (invoice.freightConversionRate || 1);
+        setFreightAmount(freightInUSD > 0 ? freightInUSD : '');
+
+        const customChargesInUSD = (invoice.customCharges || 0) * (invoice.customChargesConversionRate || 1);
+        setCustomCharges(customChargesInUSD > 0 ? customChargesInUSD : '');
     };
 
     const handleItemDetailChange = (itemId: string, field: keyof ItemDetails, value: any) => {

@@ -1,6 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext.tsx';
 import { TestEntry } from '../types.ts';
+
+// FIX: Added a Notification component to handle its own timeout via useEffect, preventing memory leaks.
+const Notification: React.FC<{ message: string; onTimeout: () => void }> = ({ message, onTimeout }) => {
+    useEffect(() => {
+        const timer = setTimeout(onTimeout, 2000);
+        return () => clearTimeout(timer);
+    }, [onTimeout]);
+
+    return (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 bg-blue-500 text-white py-2 px-4 rounded-lg shadow-lg z-50">
+            {message}
+        </div>
+    );
+};
 
 const TestPage: React.FC = () => {
     const { state, dispatch } = useData();
@@ -9,7 +23,6 @@ const TestPage: React.FC = () => {
 
     const showNotification = (message: string) => {
         setNotification(message);
-        setTimeout(() => setNotification(null), 2000);
     };
 
     const handleSave = () => {
@@ -41,11 +54,7 @@ const TestPage: React.FC = () => {
 
     return (
         <div className="space-y-6 max-w-2xl mx-auto">
-            {notification && (
-                <div className="fixed top-5 left-1/2 -translate-x-1/2 bg-blue-500 text-white py-2 px-4 rounded-lg shadow-lg z-50">
-                    {notification}
-                </div>
-            )}
+            {notification && <Notification message={notification} onTimeout={() => setNotification(null)} />}
             <h1 className="text-3xl font-bold text-slate-800">Test Page</h1>
             <p className="text-slate-600">This is a minimal page to test the core save functionality. Enter text below and click save. The entry should appear in the list below and persist after a page refresh.</p>
             
