@@ -131,7 +131,8 @@ const App: React.FC = () => {
                         }
                     }
                     setShowEscapeConfirm(false);
-                    if (escapeConfirmTimeoutRef.current) {
+                    // FIX: Changed check from truthiness to `!== null` for safety.
+                    if (escapeConfirmTimeoutRef.current !== null) {
                         clearTimeout(escapeConfirmTimeoutRef.current);
                     }
                     return;
@@ -140,10 +141,11 @@ const App: React.FC = () => {
                 if (navigationHistory.length > 0) {
                     event.preventDefault();
                     setShowEscapeConfirm(true);
-                    if (escapeConfirmTimeoutRef.current) {
-                        // FIX: Expected 1 arguments, but got 0.
+                    // FIX: Changed check from truthiness to `!== null` for safety.
+                    if (escapeConfirmTimeoutRef.current !== null) {
                         clearTimeout(escapeConfirmTimeoutRef.current);
                     }
+                    // FIX: Reverted to window.setTimeout to resolve type conflicts between Node.js and browser environments. The browser's `setTimeout` returns a `number`, which matches the ref's type.
                     escapeConfirmTimeoutRef.current = window.setTimeout(() => {
                         setShowEscapeConfirm(false);
                     }, 3000);
@@ -184,7 +186,8 @@ const App: React.FC = () => {
         window.addEventListener('keydown', handleKeyDown);
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
-            if (escapeConfirmTimeoutRef.current) {
+            // FIX: Changed check from truthiness to `!== null` for safety.
+            if (escapeConfirmTimeoutRef.current !== null) {
                 clearTimeout(escapeConfirmTimeoutRef.current);
             }
         };

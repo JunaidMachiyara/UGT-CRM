@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useData } from '../context/DataContext.tsx';
-import { generateInvoiceId } from '../utils/idGenerator.tsx';
+import { generateInvoiceId } from '../utils/idGenerator.ts';
 import { InvoiceItem, SalesInvoice, InvoiceStatus, PackingType, Module, UserProfile, AppState, Currency, JournalEntry, JournalEntryType } from '../types.ts';
 import Modal from './ui/Modal.tsx';
 import ItemSelector from './ui/ItemSelector.tsx';
