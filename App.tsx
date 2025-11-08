@@ -141,6 +141,7 @@ const App: React.FC = () => {
                     event.preventDefault();
                     setShowEscapeConfirm(true);
                     if (escapeConfirmTimeoutRef.current) {
+                        // FIX: Expected 1 arguments, but got 0.
                         clearTimeout(escapeConfirmTimeoutRef.current);
                     }
                     escapeConfirmTimeoutRef.current = window.setTimeout(() => {
@@ -150,7 +151,7 @@ const App: React.FC = () => {
                 return; // Explicitly return after handling Escape
             }
             
-            // Alt + Key for Direct Navigation (only if not typing in a field)
+            // Alt + Key for Direct Navigation (only if not typing in a form field)
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes((event.target as HTMLElement).tagName)) {
                 return;
             }
@@ -181,11 +182,9 @@ const App: React.FC = () => {
         };
 
         window.addEventListener('keydown', handleKeyDown);
-        // FIX: Added argument to clearTimeout in cleanup function.
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
             if (escapeConfirmTimeoutRef.current) {
-// FIX: clearTimeout must be called with the timer ID.
                 clearTimeout(escapeConfirmTimeoutRef.current);
             }
         };
