@@ -1,13 +1,78 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../../context/DataContext.tsx';
-import ReportToolbar from './ReportToolbar.tsx';
-import { JournalEntryType } from '../../types.ts';
+import { JournalEntryType, Customer, Supplier, ExpenseAccount } from '../../types.ts';
 import Modal from '../ui/Modal.tsx';
+import ReportToolbar from './ReportToolbar.tsx';
+
+export interface EntitySelectorModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSelect: (entityId: string) => void;
+    entityType: 'customer' | 'supplier' | 'expenseAccount';
+    allEntities: { id: string; name: string; }[];
+    plannedEntityIds: Set<string>;
+}
+
+export const EntitySelectorModal: React.FC<EntitySelectorModalProps> = ({ isOpen, onClose, onSelect, entityType, allEntities, plannedEntityIds }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const availableEntities = useMemo(() => {
+        return allEntities
+            .filter(e => !plannedEntityIds.has(e.id))
+            .filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    }, [allEntities, plannedEntityIds, searchTerm]);
+
+    useEffect(() => {
+        if (isOpen) {
+            setSearchTerm('');
+        }
+    }, [isOpen]);
+
+    const handleSelect = (entityId: string) => {
+        onSelect(entityId);
+        onClose();
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={`Add ${entityType === 'customer' ? 'Customer' : entityType === 'supplier' ? 'Supplier' : 'Expense Account'} to Plan`}>
+            <div className="space-y-4">
+                <input
+                    type="text"
+                    placeholder="Search by name..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full p-2 rounded-md"
+                    style={{ backgroundColor: 'white', color: 'black', border: '1px solid #d1d5db' }}
+                />
+                <ul className="max-h-80 overflow-y-auto border rounded-md">
+                    {availableEntities.map(entity => (
+                        <li key={entity.id}>
+                            <button
+                                onClick={() => handleSelect(entity.id)}
+                                className="w-full text-left p-3 hover:bg-blue-50 transition-colors text-slate-800"
+                            >
+                                {entity.name}
+                            </button>
+                        </li>
+                    ))}
+                    {availableEntities.length === 0 && (
+                        <li className="p-4 text-center text-slate-500">
+                            {searchTerm ? 'No matches found.' : 'All entities have been added.'}
+                        </li>
+                    )}
+                </ul>
+            </div>
+        </Modal>
+    );
+};
+
 
 const PaymentPlannerReport: React.FC = () => {
     const { state, dispatch } = useData();
     const [period, setPeriod] = useState<'weekly' | 'monthly'>('weekly');
     const [isPromptOpen, setIsPromptOpen] = useState(false);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [modalType, setModalType] = useState<'customer' | 'supplier' | null>(null);
 
     const getStartOfWeek = (date: Date): Date => {
         const d = new Date(date);
@@ -43,11 +108,11 @@ const PaymentPlannerReport: React.FC = () => {
     }, [period, state.plannerLastWeeklyReset, state.plannerLastMonthlyReset, dispatch]);
 
 
-    const { customerData, supplierData } = useMemo(() => {
+    const { allCustomerData, allSupplierData } = useMemo(() => {
         const receivableAccountId = state.receivableAccounts[0]?.id;
         const payableAccountId = state.payableAccounts[0]?.id;
 
-        const customerData = state.customers.map(customer => {
+        const allCustomerData = state.customers.map(customer => {
             const customerEntries = state.journalEntries.filter(je => je.entityType === 'customer' && je.entityId === customer.id);
             const receivable = customerEntries.filter(je => je.account === receivableAccountId).reduce((bal, je) => bal + je.debit - je.credit, 0);
 
@@ -56,9 +121,9 @@ const PaymentPlannerReport: React.FC = () => {
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
 
             return { id: customer.id, name: customer.name, receivable, lastReceiptAmount: lastReceipt ? (lastReceipt.credit || 0) : 0, lastReceiptDate: lastReceipt ? lastReceipt.date : 'N/A' };
-        }).filter(c => c.receivable > 0.01);
+        });
 
-        const supplierData = state.suppliers.map(supplier => {
+        const allSupplierData = state.suppliers.map(supplier => {
             const supplierEntries = state.journalEntries.filter(je => je.entityType === 'supplier' && je.entityId === supplier.id);
             const payable = supplierEntries.filter(je => je.account === payableAccountId).reduce((bal, je) => bal + je.credit - je.debit, 0);
 
@@ -67,10 +132,20 @@ const PaymentPlannerReport: React.FC = () => {
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
 
             return { id: supplier.id, name: supplier.name, payable, lastPaymentAmount: lastPayment ? (lastPayment.debit || 0) : 0, lastPaymentDate: lastPayment ? lastPayment.date : 'N/A' };
-        }).filter(s => s.payable > 0.01);
+        });
 
-        return { customerData, supplierData };
+        return { allCustomerData, allSupplierData };
     }, [state]);
+
+    const { customerData, supplierData } = useMemo(() => {
+        const plannedCustomerIds = new Set(state.plannerCustomerIds || []);
+        const plannedSupplierIds = new Set(state.plannerSupplierIds || []);
+
+        return {
+            customerData: allCustomerData.filter(c => plannedCustomerIds.has(c.id)),
+            supplierData: allSupplierData.filter(s => plannedSupplierIds.has(s.id))
+        };
+    }, [allCustomerData, allSupplierData, state.plannerCustomerIds, state.plannerSupplierIds]);
 
     const handlePlanChange = (entityId: string, value: string) => {
         const newPlannerData = JSON.parse(JSON.stringify(state.plannerData || {}));
@@ -82,6 +157,16 @@ const PaymentPlannerReport: React.FC = () => {
         }
         newPlannerData[entityId][period].currentPlan = value === '' ? 0 : Number(value);
         dispatch({ type: 'SET_PLANNER_DATA', payload: { plannerData: newPlannerData } });
+    };
+
+    const handleAddEntity = (entityId: string) => {
+        if (modalType) {
+            dispatch({ type: 'ADD_PLANNER_ENTITY', payload: { entityType: modalType, entityId } });
+        }
+    };
+
+    const handleRemoveEntity = (entityType: 'customer' | 'supplier', entityId: string) => {
+        dispatch({ type: 'REMOVE_PLANNER_ENTITY', payload: { entityType, entityId } });
     };
 
     const handleStartNewPlan = () => {
@@ -196,7 +281,14 @@ const PaymentPlannerReport: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Customer Receivables */}
                 <div className="bg-white p-4 rounded-lg shadow-md border-t-4 border-blue-500">
-                    <h3 className="text-xl font-bold text-slate-800 mb-4">Customer Receivables Planner</h3>
+                    <h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center justify-between">
+                        Customer Receivables Planner
+                        <button
+                            onClick={() => { setModalType('customer'); setIsModalOpen(true); }}
+                            className="w-8 h-8 flex items-center justify-center bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors text-xl"
+                            title="Add Customer to Plan"
+                        >+</button>
+                    </h3>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left table-auto text-sm">
                             <thead>
@@ -208,6 +300,7 @@ const PaymentPlannerReport: React.FC = () => {
                                     <th className="p-2 font-semibold text-slate-600 text-right">Last {periodName}'s Plan</th>
                                     <th className="p-2 font-semibold text-slate-600 text-right">Last {periodName}'s Actual</th>
                                     <th className="p-2 font-semibold text-slate-600">This {periodName}'s Plan</th>
+                                    <th className="p-2"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -226,6 +319,9 @@ const PaymentPlannerReport: React.FC = () => {
                                         <td className="p-2 w-32">
                                             <input type="number" value={planData?.currentPlan || ''} onChange={e => handlePlanChange(c.id, e.target.value)} className="w-full p-1 border border-slate-300 rounded-md text-right" placeholder="0.00" />
                                         </td>
+                                        <td className="p-1 text-center">
+                                            <button onClick={() => handleRemoveEntity('customer', c.id)} className="text-red-500 hover:text-red-700 font-bold">✕</button>
+                                        </td>
                                     </tr>
                                 )})}
                             </tbody>
@@ -233,6 +329,7 @@ const PaymentPlannerReport: React.FC = () => {
                                 <tr className="bg-slate-200 font-bold">
                                     <td colSpan={6} className="p-2 text-right text-slate-800">Total Planned Receipts</td>
                                     <td className="p-2 text-right text-slate-800">{formatCurrency(totalPlannedReceipts)}</td>
+                                    <td></td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -241,7 +338,14 @@ const PaymentPlannerReport: React.FC = () => {
 
                 {/* Supplier Payables */}
                 <div className="bg-white p-4 rounded-lg shadow-md border-t-4 border-orange-500">
-                    <h3 className="text-xl font-bold text-slate-800 mb-4">Supplier Payables Planner</h3>
+                    <h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center justify-between">
+                        Supplier Payables Planner
+                         <button
+                            onClick={() => { setModalType('supplier'); setIsModalOpen(true); }}
+                            className="w-8 h-8 flex items-center justify-center bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors text-xl"
+                            title="Add Supplier to Plan"
+                        >+</button>
+                    </h3>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left table-auto text-sm">
                             <thead>
@@ -253,6 +357,7 @@ const PaymentPlannerReport: React.FC = () => {
                                     <th className="p-2 font-semibold text-slate-600 text-right">Last {periodName}'s Plan</th>
                                     <th className="p-2 font-semibold text-slate-600 text-right">Last {periodName}'s Actual</th>
                                     <th className="p-2 font-semibold text-slate-600">This {periodName}'s Plan</th>
+                                    <th className="p-2"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -271,6 +376,9 @@ const PaymentPlannerReport: React.FC = () => {
                                         <td className="p-2 w-32">
                                             <input type="number" value={planData?.currentPlan || ''} onChange={e => handlePlanChange(s.id, e.target.value)} className="w-full p-1 border border-slate-300 rounded-md text-right" placeholder="0.00" />
                                         </td>
+                                        <td className="p-1 text-center">
+                                            <button onClick={() => handleRemoveEntity('supplier', s.id)} className="text-red-500 hover:text-red-700 font-bold">✕</button>
+                                        </td>
                                     </tr>
                                 )})}
                             </tbody>
@@ -278,6 +386,7 @@ const PaymentPlannerReport: React.FC = () => {
                                 <tr className="bg-slate-200 font-bold">
                                     <td colSpan={6} className="p-2 text-right text-slate-800">Total Planned Payments</td>
                                     <td className="p-2 text-right text-slate-800">{formatCurrency(totalPlannedPayments)}</td>
+                                    <td></td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -298,6 +407,17 @@ const PaymentPlannerReport: React.FC = () => {
                     </div>
                 </div>
             </Modal>
+            
+            {modalType && (
+                <EntitySelectorModal
+                    isOpen={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    onSelect={handleAddEntity}
+                    entityType={modalType as 'customer' | 'supplier'}
+                    allEntities={modalType === 'customer' ? state.customers : state.suppliers}
+                    plannedEntityIds={new Set(modalType === 'customer' ? state.plannerCustomerIds : state.plannerSupplierIds)}
+                />
+            )}
         </div>
     );
 };

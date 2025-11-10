@@ -4,6 +4,8 @@ import { JournalEntry, JournalEntryType, Currency, UserProfile, AppState, SalesI
 import CurrencyInput from './ui/CurrencyInput.tsx';
 import ReportFilters from './reports/ReportFilters.tsx';
 import Modal from './ui/Modal.tsx';
+import PackingMaterialModule from './PackingMaterialModule.tsx';
+import FixedAssetsModule from './FixedAssetsModule.tsx';
 
 const Notification: React.FC<{ message: string; onTimeout: () => void }> = ({ message, onTimeout }) => {
     useEffect(() => {
@@ -321,7 +323,7 @@ const UpdateVoucherList: React.FC<{}> = () => {
 
 
 const AccountingModule: React.FC<{ userProfile: UserProfile | null; initialView?: string | null }> = ({ userProfile, initialView }) => {
-    const [subModule, setSubModule] = useState<'new' | 'update'>(initialView as any || 'new');
+    const [subModule, setSubModule] = useState<'new' | 'update' | 'packing' | 'fixedAssets'>(initialView as any || 'new');
     const [notification, setNotification] = useState<string|null>(null);
 
     useEffect(() => {
@@ -332,19 +334,23 @@ const AccountingModule: React.FC<{ userProfile: UserProfile | null; initialView?
         setNotification(message);
     };
 
-    const getButtonClass = (module: 'new' | 'update') => `px-4 py-2 rounded-md transition-colors text-sm font-medium ${subModule === module ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`;
+    const getButtonClass = (module: 'new' | 'update' | 'packing' | 'fixedAssets') => `px-4 py-2 rounded-md transition-colors text-sm font-medium ${subModule === module ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`;
 
     return (
         <div className="space-y-6">
             {notification && <Notification message={notification} onTimeout={() => setNotification(null)} />}
              <div className="bg-white p-4 rounded-lg shadow-md flex items-center space-x-2">
-                <h2 className="text-xl font-bold text-slate-700 mr-4">Accounting Vouchers</h2>
+                <h2 className="text-xl font-bold text-slate-700 mr-4">Accounting</h2>
                 <button onClick={() => setSubModule('new')} className={getButtonClass('new')}>New Voucher</button>
                 <button onClick={() => setSubModule('update')} className={getButtonClass('update')}>Update / View Vouchers</button>
+                <button onClick={() => setSubModule('packing')} className={getButtonClass('packing')}>Packing Material</button>
+                <button onClick={() => setSubModule('fixedAssets')} className={getButtonClass('fixedAssets')}>Fixed Assets</button>
             </div>
             <div className="bg-white p-6 rounded-lg shadow-md">
                 {subModule === 'new' && <NewVoucherForm userProfile={userProfile} showNotification={showNotification} />}
                 {subModule === 'update' && <UpdateVoucherList />}
+                {subModule === 'packing' && <PackingMaterialModule userProfile={userProfile} showNotification={showNotification} />}
+                {subModule === 'fixedAssets' && <FixedAssetsModule userProfile={userProfile} showNotification={showNotification} />}
             </div>
         </div>
     );

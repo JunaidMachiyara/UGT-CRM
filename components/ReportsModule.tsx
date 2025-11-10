@@ -22,6 +22,7 @@ import FeasibilityReport from "./reports/FeasibilityReport.tsx";
 import RebalingReport from "./reports/RebalingReport.tsx";
 import PaymentPlannerReport from './reports/PaymentPlannerReport.tsx';
 import StockWorthReport from './reports/StockWorthReport.tsx';
+import ExpensePlannerReport from './reports/ExpensePlannerReport.tsx';
 
 type ReportCategoryKey = 'item-performance' | 'original-stock-v1' | 'ledger' | 'cash-bank' | 'invoices' | 'detailed-reports' | 'production' | 'financial' | 'fulfillment';
 type ReportKey = 
@@ -48,6 +49,7 @@ type ReportKey =
     | 'financial/balance-sheet'
     | 'financial/profit-loss'
     | 'financial/payment-planner'
+    | 'financial/expense-planner'
     | 'fulfillment/dashboard';
 
 
@@ -133,6 +135,7 @@ export const reportStructure: ReportCategory[] = [
             { key: 'financial/balance-sheet', label: 'Balance Sheet' },
             { key: 'financial/profit-loss', label: 'Profit & Loss Report' },
             { key: 'financial/payment-planner', label: 'Receipts & Payments Planner' },
+            { key: 'financial/expense-planner', label: 'Expense Paid & Payable Planner' },
         ],
     },
 ];
@@ -271,6 +274,8 @@ const ReportsModule: React.FC<{ userProfile: UserProfile | null, initialReport?:
                 return <ProfitAndLossReport />;
             case 'financial/payment-planner':
                 return <PaymentPlannerReport />;
+            case 'financial/expense-planner':
+                return <ExpensePlannerReport />;
             case 'production/section-production':
                 return <SectionProductionReport />;
             case 'production/feasibility':

@@ -187,8 +187,82 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
             totalKg: totalKg,
         };
         dispatch({ type: 'ADD_ENTITY', payload: { entity: 'originalOpenings', data: newOpening } });
+        
+        // --- START: Automatic Journal Entry ---
+        const relevantPurchases = state.originalPurchases.filter(p =>
+            p.supplierId === newOpening.supplierId &&
+            (p.subSupplierId || undefined) === (newOpening.subSupplierId || undefined) &&
+            p.originalTypeId === newOpening.originalTypeId &&
+            (p.originalProductId || undefined) === (newOpening.originalProductId || undefined)
+        );
+    
+        if (relevantPurchases.length > 0) {
+            let totalCostUSD = 0;
+            let totalKgPurchased = 0;
+    
+            relevantPurchases.forEach(p => {
+                const oType = state.originalTypes.find(ot => ot.id === p.originalTypeId);
+                if (!oType) return;
+                
+                const purchaseKg = oType.packingType === PackingType.Kg ? p.quantityPurchased : p.quantityPurchased * oType.packingSize;
+                if (purchaseKg > 0) {
+                    const itemValueUSD = (p.quantityPurchased * p.rate) * (p.conversionRate || 1);
+                    const freightUSD = (p.freightAmount || 0) * (p.freightConversionRate || 1);
+                    const clearingUSD = (p.clearingAmount || 0) * (p.clearingConversionRate || 1);
+                    const commissionUSD = (p.commissionAmount || 0) * (p.commissionConversionRate || 1);
+                    const discountSurchargeUSD = p.discountSurcharge || 0;
+                    const landedCostUSD = itemValueUSD + freightUSD + clearingUSD + commissionUSD + discountSurchargeUSD;
+                    
+                    totalCostUSD += landedCostUSD;
+                    totalKgPurchased += purchaseKg;
+                }
+            });
+    
+            if (totalKgPurchased > 0) {
+                const avgCostPerKg = totalCostUSD / totalKgPurchased;
+                const openingValue = newOpening.totalKg * avgCostPerKg;
+                
+                if (openingValue > 0) {
+                    const voucherId = `AUTO-OPEN-${newOpening.id}`;
+                    const supplier = state.suppliers.find(s => s.id === newOpening.supplierId);
+                    const description = `Cost of raw material opened for production from ${supplier?.name || newOpening.supplierId}`;
+    
+                    // DEBIT: Move value into inventory asset account
+                    const debitEntry: JournalEntry = {
+                        id: `je-d-open-${newOpening.id}`,
+                        voucherId,
+                        date: newOpening.date,
+                        entryType: JournalEntryType.Journal,
+                        account: 'INV-FG-001', // Finished Goods Inventory
+                        debit: openingValue,
+                        credit: 0,
+                        description,
+                        createdBy: userProfile?.uid
+                    };
+                    
+                    // CREDIT: Reduce the temporary purchases expense account
+                    const creditEntry: JournalEntry = {
+                        id: `je-c-open-${newOpening.id}`,
+                        voucherId,
+                        date: newOpening.date,
+                        entryType: JournalEntryType.Journal,
+                        account: 'EXP-004', // Raw Material Purchases
+                        debit: 0,
+                        credit: openingValue,
+                        description,
+                        createdBy: userProfile?.uid
+                    };
+                    
+                    dispatch({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: debitEntry } });
+                    dispatch({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: creditEntry } });
+                }
+            }
+        }
+        // --- END: Automatic Journal Entry ---
+
+
         setFormData({ ...formData, opened: '' }); // Keep selections, clear quantity
-        showNotification("Data Submitted");
+        showNotification("Data Submitted & Journal Entry Posted");
     };
     
     const handleOpenEditModal = (opening: OriginalOpening) => {
@@ -350,12 +424,12 @@ const ProductionForm: React.FC<{
     const [formData, setFormData] = useState({ date: new Date().toISOString().split('T')[0], itemId: '', quantityProduced: '' });
     const [error, setError] = useState<string | null>(null);
 
-    type StagedProduction = Production & { itemName: string; itemCategory: string; baleSize: number | 'N/A' };
+    type StagedProduction = Production & { itemName: string; itemCategory: string; packingType: PackingType; packingSize: number; };
     const [stagedProductions, setStagedProductions] = useState<StagedProduction[]>([]);
     const [tempNextBaleNumbers, setTempNextBaleNumbers] = useState<Record<string, number>>({});
     
     const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
-    type SummaryProductionItem = StagedProduction & { yesterdayBales: number; totalKg: number };
+    type SummaryProductionItem = StagedProduction & { yesterdayPackages: number; totalKg: number };
     const [summaryData, setSummaryData] = useState<SummaryProductionItem[]>([]);
     const [isPreviousEntriesOpen, setIsPreviousEntriesOpen] = useState(false);
 
@@ -405,7 +479,8 @@ const ProductionForm: React.FC<{
             date, itemId, quantityProduced: quantityNum,
             itemName: itemDetails.name,
             itemCategory: state.categories.find(c => c.id === itemDetails.categoryId)?.name || 'N/A',
-            baleSize: itemDetails.packingType === PackingType.Bales ? itemDetails.baleSize : 'N/A',
+            packingType: itemDetails.packingType,
+            packingSize: itemDetails.baleSize,
         };
 
         if (itemDetails.packingType === PackingType.Bales) {
@@ -474,18 +549,19 @@ const ProductionForm: React.FC<{
         const yesterdayProductions = state.productions.filter(p => p.date === yesterdayStr);
     
         const newSummaryData = stagedProductions.map(prod => {
-            const yesterdayBales = yesterdayProductions
+            const yesterdayPackages = yesterdayProductions
                 .filter(p => p.itemId === prod.itemId)
                 .reduce((sum, p) => {
                     const itemDetails = state.items.find(i => i.id === p.itemId);
-                    return itemDetails?.packingType === PackingType.Bales ? sum + p.quantityProduced : sum;
+                    const isPackage = itemDetails && [PackingType.Bales, PackingType.Sacks, PackingType.Box, PackingType.Bags].includes(itemDetails.packingType);
+                    return isPackage ? sum + p.quantityProduced : sum;
                 }, 0);
             
-            const totalKg = prod.baleSize !== 'N/A' ? prod.quantityProduced * (prod.baleSize as number) : prod.quantityProduced;
+            const totalKg = prod.packingType !== PackingType.Kg ? prod.quantityProduced * prod.packingSize : prod.quantityProduced;
             
             return {
                 ...prod,
-                yesterdayBales,
+                yesterdayPackages,
                 totalKg
             };
         });
@@ -523,17 +599,18 @@ const ProductionForm: React.FC<{
         setSummaryData([]);
     };
 
-    // FIX: Changed accumulator properties to match initial value and used correct variable names in JSX
-    const { totalBalesForDate, totalKgForDate } = useMemo(() => {
+    const { totalPackagesForDate, totalKgForDate } = useMemo(() => {
         return stagedProductions.reduce((acc, prod) => {
-            if (prod.baleSize !== 'N/A') {
-                acc.totalBalesForDate += prod.quantityProduced;
-                acc.totalKgForDate += prod.quantityProduced * (prod.baleSize as number);
-            } else {
+            const isPackage = [PackingType.Bales, PackingType.Sacks, PackingType.Box, PackingType.Bags].includes(prod.packingType);
+
+            if (isPackage) {
+                acc.totalPackagesForDate += prod.quantityProduced;
+                acc.totalKgForDate += prod.quantityProduced * prod.packingSize;
+            } else { // It must be PackingType.Kg
                 acc.totalKgForDate += prod.quantityProduced;
             }
             return acc;
-        }, { totalBalesForDate: 0, totalKgForDate: 0 });
+        }, { totalPackagesForDate: 0, totalKgForDate: 0 });
     }, [stagedProductions]);
     
     const itemDetails = state.items.find(i => i.id === formData.itemId);
@@ -564,8 +641,7 @@ const ProductionForm: React.FC<{
             <div className="md:col-span-7">
                 <h3 className="text-lg font-bold text-slate-700 mb-2">Staged Entries for {formData.date}</h3>
                 <div className="flex justify-end text-sm font-semibold text-slate-600 mb-2 space-x-4">
-                    {/* FIX: Use correct variable names from useMemo */}
-                    <span>Total Bales: {totalBalesForDate.toLocaleString()}</span>
+                    <span>Total Packages: {totalPackagesForDate.toLocaleString()}</span>
                     <span>Total Kg: {totalKgForDate.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                 </div>
                 {stagedProductions.length > 0 ? (
@@ -660,11 +736,11 @@ const ProductionForm: React.FC<{
                                     <tr>
                                         <th className="p-2 font-semibold text-slate-600">Item</th>
                                         <th className="p-2 font-semibold text-slate-600">Category</th>
-                                        <th className="p-2 font-semibold text-slate-600 text-right">Qty (Bales)</th>
-                                        <th className="p-2 font-semibold text-slate-600 text-right">Bale Size</th>
+                                        <th className="p-2 font-semibold text-slate-600 text-right">Qty (Pkgs)</th>
+                                        <th className="p-2 font-semibold text-slate-600 text-right">Pkg Size</th>
                                         <th className="p-2 font-semibold text-slate-600 text-right">Total Kg</th>
                                         <th className="p-2 font-semibold text-slate-600 text-center">Bale Nos.</th>
-                                        <th className="p-2 font-semibold text-slate-600 text-right">Yesterday's Bales</th>
+                                        <th className="p-2 font-semibold text-slate-600 text-right">Yesterday's Pkgs</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -673,17 +749,20 @@ const ProductionForm: React.FC<{
                                             <td className="p-2">{p.itemName}</td>
                                             <td className="p-2">{p.itemCategory}</td>
                                             <td className="p-2 text-right">{p.quantityProduced.toLocaleString()}</td>
-                                            <td className="p-2 text-right">{p.baleSize}</td>
+                                            <td className="p-2 text-right">{p.packingType !== PackingType.Kg ? p.packingSize : 'N/A'}</td>
                                             <td className="p-2 text-right font-medium">{p.totalKg.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                                             <td className="p-2 text-center font-mono text-xs">{p.startBaleNumber ? `${p.startBaleNumber}-${p.endBaleNumber}` : '-'}</td>
-                                            <td className="p-2 text-right">{p.yesterdayBales > 0 ? p.yesterdayBales.toLocaleString() : '-'}</td>
+                                            <td className="p-2 text-right">{p.yesterdayPackages > 0 ? p.yesterdayPackages.toLocaleString() : '-'}</td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
                         <div className="flex justify-end text-sm font-semibold space-x-6 pt-4 border-t">
-                             <span>Total Bales: {summaryData.reduce((sum, p) => sum + (p.baleSize !== 'N/A' ? p.quantityProduced : 0), 0).toLocaleString()}</span>
+                             <span>Total Packages: {summaryData.reduce((sum, p) => {
+                                const isPackage = [PackingType.Bales, PackingType.Sacks, PackingType.Box, PackingType.Bags].includes(p.packingType);
+                                return sum + (isPackage ? p.quantityProduced : 0);
+                             }, 0).toLocaleString()}</span>
                             <span>Total Kg: {summaryData.reduce((sum, p) => sum + p.totalKg, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                         </div>
                     </div>
@@ -1519,35 +1598,32 @@ const DataEntryModule: React.FC<DataEntryProps> = ({ setModule, requestSetupItem
             case 'production': return <ProductionForm showNotification={showNotification} requestSetupItem={requestSetupItem} userProfile={userProfile} />;
             case 'purchases': return <PurchasesModule showNotification={showNotification} userProfile={userProfile} />;
             case 'sales': return <SalesInvoiceModule setModule={setModule} userProfile={userProfile} />;
-            case 'stockLot': return <StockLotModule setModule={setModule} showNotification={showNotification} userProfile={userProfile} />;
             case 'ongoing': return <OngoingOrdersModule setModule={setModule} userProfile={userProfile} />;
             case 'rebaling': return <RebalingForm showNotification={showNotification} userProfile={userProfile} />;
             case 'directSales': return <DirectSalesForm showNotification={showNotification} userProfile={userProfile} />;
             case 'offloading': return <OffloadingForm showNotification={showNotification} userProfile={userProfile} />;
-            default: return <div>Select a data entry form.</div>;
+            case 'stockLot': return <StockLotModule setModule={setModule} showNotification={showNotification} userProfile={userProfile} />;
+            default: return null;
         }
     };
-    
-    const getButtonClass = (formView: FormView) => `px-4 py-2 rounded-md transition-colors text-sm font-medium ${view === formView ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`;
 
     return (
         <div className="space-y-6">
             {notification && <Notification message={notification} onTimeout={() => setNotification(null)} />}
-            <div className="bg-white p-4 rounded-lg shadow-md no-print">
+            <div className="bg-white p-4 rounded-lg shadow-md">
                 <div className="flex flex-wrap items-center gap-2">
-                     <h2 className="text-xl font-bold text-slate-700 mr-4">Data Entry</h2>
-                    {dataEntrySubModules.map(subModule => (
+                    {dataEntrySubModules.map(module => (
                         <button
-                            key={subModule.key}
-                            onClick={() => setView(subModule.key as FormView)}
-                            className={getButtonClass(subModule.key as FormView)}
+                            key={module.key}
+                            onClick={() => setView(module.key as FormView)}
+                            className={`px-4 py-2 rounded-md transition-colors text-sm font-medium ${view === module.key ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
                         >
-                            {subModule.label}
+                            {module.label}
                         </button>
                     ))}
                 </div>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow-md form-with-bg">
+            <div className="bg-white p-6 rounded-lg shadow-md">
                 {renderView()}
             </div>
         </div>

@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useData, auth, db, allPermissions, dataEntrySubModules, mainModules } from '../context/DataContext.tsx';
-import { Module, UserProfile, AppState, PackingType } from '../types.ts';
+import { Module, UserProfile, AppState, PackingType, Production, JournalEntry } from '../types.ts';
 import { reportStructure } from './ReportsModule.tsx';
 import Modal from './ui/Modal.tsx';
 
 const DataCorrectionManager: React.FC<{ setNotification: (n: any) => void; }> = ({ setNotification }) => {
     const { state, dispatch } = useData();
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+    const [isBalanceResetConfirmOpen, setIsBalanceResetConfirmOpen] = useState(false);
+    const [isHardResetConfirmOpen, setIsHardResetConfirmOpen] = useState(false);
+    const [isClearStockConfirmOpen, setIsClearStockConfirmOpen] = useState(false);
 
     const executePriceCorrection = () => {
         const batchUpdates: any[] = [];
@@ -52,6 +55,103 @@ const DataCorrectionManager: React.FC<{ setNotification: (n: any) => void; }> = 
         setIsConfirmModalOpen(false);
         setNotification({ msg: "Price Correction cancelled.", type: 'success' });
     };
+    
+    const executeBalanceReset = () => {
+        const batchUpdates: any[] = [];
+        let updatedCount = 0;
+
+        const processEntityList = (entityName: 'customers' | 'suppliers' | 'commissionAgents' | 'freightForwarders' | 'clearingAgents' | 'expenseAccounts') => {
+            const list = state[entityName] as ({ id: string, startingBalance?: number })[];
+            list.forEach(entity => {
+                if (entity.startingBalance && entity.startingBalance !== 0) {
+                    batchUpdates.push({
+                        type: 'UPDATE_ENTITY',
+                        payload: {
+                            entity: entityName,
+                            data: { id: entity.id, startingBalance: 0 }
+                        }
+                    });
+                    updatedCount++;
+                }
+
+                // Delete associated opening balance journal entries
+                const debitEntryId = `je-d-ob-${entity.id}`;
+                const creditEntryId = `je-c-ob-${entity.id}`;
+                
+                if (state.journalEntries.some(je => je.id === debitEntryId)) {
+                    batchUpdates.push({ type: 'DELETE_ENTITY', payload: { entity: 'journalEntries', id: debitEntryId } });
+                }
+                if (state.journalEntries.some(je => je.id === creditEntryId)) {
+                     batchUpdates.push({ type: 'DELETE_ENTITY', payload: { entity: 'journalEntries', id: creditEntryId } });
+                }
+            });
+        };
+
+        processEntityList('customers');
+        processEntityList('suppliers');
+        processEntityList('commissionAgents');
+        processEntityList('freightForwarders');
+        processEntityList('clearingAgents');
+        processEntityList('expenseAccounts');
+        
+        if (batchUpdates.length > 0) {
+            dispatch({ type: 'BATCH_UPDATE', payload: batchUpdates });
+            setNotification({ msg: `Successfully reset opening balances for ${updatedCount} entities and cleared related journal entries.`, type: 'success' });
+        } else {
+            setNotification({ msg: "No entity opening balances needed resetting.", type: 'success' });
+        }
+        setIsBalanceResetConfirmOpen(false);
+    };
+
+    const executeHardReset = () => {
+        dispatch({ type: 'HARD_RESET_TRANSACTIONS' });
+        setNotification({ msg: `Successfully reset all transactional data.`, type: 'success' });
+        setIsHardResetConfirmOpen(false);
+    };
+    
+    const executeClearOpeningStock = () => {
+        const batchUpdates: any[] = [];
+        let updatedCount = 0;
+
+        state.items.forEach(item => {
+            if (item.openingStock && item.openingStock > 0) {
+                // 1. Set opening stock to 0
+                batchUpdates.push({
+                    type: 'UPDATE_ENTITY',
+                    payload: {
+                        entity: 'items',
+                        data: { id: item.id, openingStock: 0 }
+                    }
+                });
+
+                // 2. Delete the associated production entry
+                const prodId = `prod_open_stock_${item.id}`;
+                if (state.productions.some(p => p.id === prodId)) {
+                    batchUpdates.push({ type: 'DELETE_ENTITY', payload: { entity: 'productions', id: prodId } });
+                }
+
+                // 3. Delete the associated journal entries
+                const osDebitId = `je-d-os-${item.id}`;
+                const osCreditId = `je-c-os-${item.id}`;
+                if (state.journalEntries.some(je => je.id === osDebitId)) {
+                    batchUpdates.push({ type: 'DELETE_ENTITY', payload: { entity: 'journalEntries', id: osDebitId } });
+                }
+                if (state.journalEntries.some(je => je.id === osCreditId)) {
+                    batchUpdates.push({ type: 'DELETE_ENTITY', payload: { entity: 'journalEntries', id: osCreditId } });
+                }
+                
+                updatedCount++;
+            }
+        });
+
+        if (batchUpdates.length > 0) {
+            dispatch({ type: 'BATCH_UPDATE', payload: batchUpdates });
+            setNotification({ msg: `Successfully cleared opening stock for ${updatedCount} items and removed associated entries.`, type: 'success' });
+        } else {
+            setNotification({ msg: "No items had opening stock to clear.", type: 'success' });
+        }
+        setIsClearStockConfirmOpen(false);
+    };
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-md">
@@ -75,6 +175,56 @@ const DataCorrectionManager: React.FC<{ setNotification: (n: any) => void; }> = 
                     Run Price Correction Script
                 </button>
             </div>
+            
+            <div className="border-t pt-4 mt-6">
+                <h3 className="text-lg font-semibold text-slate-800">Clear All Item Opening Stock</h3>
+                <p className="text-sm text-slate-600 mt-1 mb-3">
+                    This action will set the 'openingStock' of all items to 0. It will also delete the special production and journal entries that were created to account for this opening stock. Regular production entries will not be affected.
+                </p>
+                <button
+                    onClick={() => setIsClearStockConfirmOpen(true)}
+                    className="px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 transition-colors flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M5.5 9.5a7 7 0 112.1-5.1" /></svg>
+                    Clear Item Opening Stock
+                </button>
+            </div>
+
+            <div className="border-t pt-4 mt-6">
+                <h3 className="text-lg font-semibold text-slate-800">Reset All Entity Opening Balances</h3>
+                <p className="text-sm text-slate-600 mt-1 mb-3">
+                    This action will set the 'startingBalance' of all Customers, Suppliers, all Agents, and Expense Accounts to 0. It will also delete their associated opening balance journal entries.
+                </p>
+                <button
+                    onClick={() => setIsBalanceResetConfirmOpen(true)}
+                    className="px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 transition-colors flex items-center gap-2"
+                >
+                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M5.5 9.5a7 7 0 112.1-5.1" /></svg>
+                    Reset Opening Balances
+                </button>
+            </div>
+
+            <div className="border-t pt-4 mt-6">
+                <h3 className="text-lg font-semibold text-red-800">Hard Reset All Transactions</h3>
+                <p className="text-sm text-slate-600 mt-1 mb-3">
+                    This action will permanently delete <strong>ALL</strong> transactional data, including:
+                    <ul className="list-disc list-inside ml-4 mt-2">
+                        <li>All Sales Invoices & Purchase Invoices</li>
+                        <li>All Accounting Vouchers (Receipts, Payments, etc.)</li>
+                        <li>All Journal Entries</li>
+                        <li>All Production, Opening, & Stock Movement records</li>
+                    </ul>
+                    This will effectively reset all account balances (like Accounts Receivable, Revenue) to zero. Setup data (customers, items, etc.) will NOT be deleted.
+                </p>
+                <button
+                    onClick={() => setIsHardResetConfirmOpen(true)}
+                    className="px-4 py-2 bg-red-700 text-white font-semibold rounded-md hover:bg-red-800 transition-colors flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    Hard Reset All Transactions
+                </button>
+            </div>
+
              {isConfirmModalOpen && (
                  <Modal
                     isOpen={isConfirmModalOpen}
@@ -95,6 +245,77 @@ const DataCorrectionManager: React.FC<{ setNotification: (n: any) => void; }> = 
                             </button>
                             <button onClick={executePriceCorrection} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
                                 Yes, Proceed
+                            </button>
+                        </div>
+                    </div>
+                 </Modal>
+            )}
+            
+            {isClearStockConfirmOpen && (
+                 <Modal
+                    isOpen={isClearStockConfirmOpen}
+                    onClose={() => setIsClearStockConfirmOpen(false)}
+                    title="Confirm Clear Opening Stock"
+                    size="lg"
+                 >
+                    <div className="space-y-4">
+                        <p className="font-bold text-red-600">DANGER: This action is irreversible.</p>
+                        <p className="text-slate-700">This will permanently set the `openingStock` of <strong>ALL</strong> items to 0.</p>
+                        <p className="text-slate-700">It will also delete the associated opening stock production and journal entries. <strong>Regular production entries will not be affected.</strong></p>
+                        <p className="text-slate-700">Are you absolutely sure you want to proceed?</p>
+                        <div className="flex justify-end gap-3 pt-4 border-t">
+                            <button onClick={() => setIsClearStockConfirmOpen(false)} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300">
+                                Cancel
+                            </button>
+                            <button onClick={executeClearOpeningStock} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
+                                Yes, Clear Opening Stock
+                            </button>
+                        </div>
+                    </div>
+                 </Modal>
+            )}
+
+            {isBalanceResetConfirmOpen && (
+                 <Modal
+                    isOpen={isBalanceResetConfirmOpen}
+                    onClose={() => setIsBalanceResetConfirmOpen(false)}
+                    title="Confirm Opening Balances Reset"
+                    size="lg"
+                 >
+                    <div className="space-y-4">
+                        <p className="font-bold text-red-600">DANGER: This is an irreversible bulk data operation.</p>
+                        <p className="text-slate-700">This will permanently set the `startingBalance` of <strong>ALL</strong> Customers, Suppliers, all Agents, and Expense Accounts to 0.</p>
+                        <p className="text-slate-700">It will also delete all associated opening balance journal entries, which could affect historical reports if not done carefully.</p>
+                        <p className="text-slate-700">Are you absolutely sure you want to proceed?</p>
+                        <div className="flex justify-end gap-3 pt-4 border-t">
+                            <button onClick={() => setIsBalanceResetConfirmOpen(false)} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300">
+                                Cancel
+                            </button>
+                            <button onClick={executeBalanceReset} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
+                                Yes, Reset Opening Balances
+                            </button>
+                        </div>
+                    </div>
+                 </Modal>
+            )}
+
+            {isHardResetConfirmOpen && (
+                 <Modal
+                    isOpen={isHardResetConfirmOpen}
+                    onClose={() => setIsHardResetConfirmOpen(false)}
+                    title="CONFIRM HARD RESET"
+                    size="lg"
+                 >
+                    <div className="space-y-4">
+                        <p className="font-bold text-red-600 text-lg">DANGER: THIS WILL DELETE ALL TRANSACTIONAL DATA.</p>
+                        <p className="text-slate-700">You are about to delete all sales, purchases, vouchers, and journal entries. This action cannot be undone and will reset your accounting and inventory to a clean slate.</p>
+                        <p className="text-slate-700">Are you absolutely sure you want to proceed?</p>
+                        <div className="flex justify-end gap-3 pt-4 border-t">
+                            <button onClick={() => setIsHardResetConfirmOpen(false)} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300">
+                                Cancel
+                            </button>
+                            <button onClick={executeHardReset} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
+                                Yes, Delete All Transactions
                             </button>
                         </div>
                     </div>

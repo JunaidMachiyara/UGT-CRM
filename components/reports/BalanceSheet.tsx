@@ -1,25 +1,94 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext.tsx';
 import ReportToolbar from './ReportToolbar.tsx';
+import { OriginalPurchased, PackingType, Currency } from '../../types.ts';
 
 const BalanceSheet: React.FC = () => {
     const { state } = useData();
     const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
 
-    const { assets, liabilities, equity, netIncomeForPeriod } = useMemo(() => {
+    const { assets, liabilities, equity } = useMemo(() => {
         const entries = state.journalEntries.filter(je => je.date <= asOfDate);
         
         const getAccountBalance = (accountId: string) => entries
             .filter(je => je.account === accountId)
             .reduce((sum, je) => sum + je.debit - je.credit, 0);
-
-        const getEntityBalance = (generalAccountId: string, entityType: 'customer' | 'supplier' | 'employee' | 'freightForwarder' | 'clearingAgent' | 'commissionAgent') => {
-            return entries.filter(je => je.account === generalAccountId && je.entityType === entityType)
-                .reduce((sum, je) => sum + (generalAccountId === state.receivableAccounts[0]?.id ? (je.debit - je.credit) : (je.credit - je.debit)), 0);
+        
+        // FIX: Define calculateTotalBalance to sum balances for a list of accounts.
+        const calculateTotalBalance = (accounts: { id: string }[]) => {
+            return accounts.reduce((sum, acc) => sum + getAccountBalance(acc.id), 0);
         };
 
-        const calculateTotalBalance = (accountList: { id: string }[]) => accountList.reduce((sum, acc) => sum + getAccountBalance(acc.id), 0);
+        // --- 1. Calculate Raw Material Inventory Value ---
+        const avgCostPerKg: { [originalTypeId: string]: number } = {};
+        const costMap: { [originalTypeId: string]: { totalKg: number; totalCost: number } } = {};
         
+        state.originalPurchases.filter(p => p.date <= asOfDate).forEach((p: OriginalPurchased) => {
+            const originalType = state.originalTypes.find(ot => ot.id === p.originalTypeId);
+            if (!originalType) return;
+
+            const purchaseKg = originalType.packingType === PackingType.Kg 
+                ? p.quantityPurchased 
+                : p.quantityPurchased * originalType.packingSize;
+
+            const itemValueUSD = (p.quantityPurchased * p.rate) * (p.conversionRate || 1);
+            const freightUSD = (p.freightAmount || 0) * (p.freightConversionRate || 1);
+            const clearingUSD = (p.clearingAmount || 0) * (p.clearingConversionRate || 1);
+            const commissionUSD = (p.commissionAmount || 0) * (p.commissionConversionRate || 1);
+            const discountSurchargeUSD = p.discountSurcharge || 0;
+
+            const purchaseCostUSD = itemValueUSD + freightUSD + clearingUSD + commissionUSD + discountSurchargeUSD;
+            
+            if (!costMap[p.originalTypeId]) {
+                costMap[p.originalTypeId] = { totalKg: 0, totalCost: 0 };
+            }
+            if (purchaseKg > 0) {
+              costMap[p.originalTypeId].totalKg += purchaseKg;
+              costMap[p.originalTypeId].totalCost += purchaseCostUSD;
+            }
+        });
+        for (const typeId in costMap) {
+            if (costMap[typeId].totalKg > 0) {
+                avgCostPerKg[typeId] = costMap[typeId].totalCost / costMap[typeId].totalKg;
+            }
+        }
+
+        const purchasedKgMap = new Map<string, number>();
+        state.originalPurchases.filter(p => p.date <= asOfDate).forEach(p => {
+            const originalType = state.originalTypes.find(ot => ot.id === p.originalTypeId);
+            if (!originalType) return;
+            const kg = originalType.packingType === PackingType.Kg ? p.quantityPurchased : p.quantityPurchased * originalType.packingSize;
+            purchasedKgMap.set(p.originalTypeId, (purchasedKgMap.get(p.originalTypeId) || 0) + kg);
+        });
+
+        const openedKgMap = new Map<string, number>();
+        state.originalOpenings.filter(o => o.date <= asOfDate).forEach(o => {
+            openedKgMap.set(o.originalTypeId, (openedKgMap.get(o.originalTypeId) || 0) + o.totalKg);
+        });
+        
+        let rawMaterialInventoryValue = 0;
+        for(const [typeId, totalPurchasedKg] of purchasedKgMap.entries()) {
+            const totalOpenedKg = openedKgMap.get(typeId) || 0;
+            const inHandKg = totalPurchasedKg - totalOpenedKg;
+            const cost = avgCostPerKg[typeId] || 0;
+            rawMaterialInventoryValue += inHandKg * cost;
+        }
+
+        // --- 2. Calculate Finished Goods Inventory Value ---
+        let finishedGoodsInventoryValue = 0;
+        state.items.forEach(item => {
+            const openingStock = item.openingStock || 0;
+            const production = state.productions.filter(p => p.itemId === item.id && p.date <= asOfDate).reduce((sum, p) => sum + p.quantityProduced, 0);
+            const sales = state.salesInvoices.filter(inv => inv.status !== 'Unposted' && inv.date <= asOfDate).flatMap(inv => inv.items).filter(i => i.itemId === item.id).reduce((sum, i) => sum + i.quantity, 0);
+            const currentStockUnits = openingStock + production - sales;
+            
+            if (currentStockUnits > 0) {
+                const unitWeight = item.packingType !== PackingType.Kg ? (item.baleSize || 0) : 1;
+                const stockKg = currentStockUnits * unitWeight;
+                finishedGoodsInventoryValue += stockKg * item.avgProductionPrice;
+            }
+        });
+
         // P&L Calculation for Retained Earnings
         const revenueAccounts = state.revenueAccounts.map(a => a.id);
         const expenseAccounts = state.expenseAccounts.map(a => a.id);
@@ -28,17 +97,20 @@ const BalanceSheet: React.FC = () => {
         const netIncome = revenue - expenses;
 
         // ASSETS
-        const cash = calculateTotalBalance(state.cashAccounts);
-        const bank = calculateTotalBalance(state.banks);
+        const cash = getAccountBalance(state.cashAccounts[0]?.id || '');
+        const bank = state.banks.reduce((sum, b) => sum + getAccountBalance(b.id), 0);
         const receivables = getAccountBalance(state.receivableAccounts[0]?.id);
-        const inventory = getAccountBalance(state.inventoryAccounts[0]?.id);
         const investments = calculateTotalBalance(state.investmentAccounts);
+        const fixedAssets = getAccountBalance(state.fixedAssetAccounts[0]?.id);
+        const accumulatedDepreciation = getAccountBalance(state.accumulatedDepreciationAccounts[0]?.id);
+        const packingMaterialInventory = getAccountBalance(state.packingMaterialInventoryAccounts[0]?.id);
         
-        const totalCurrentAssets = cash + bank + receivables + inventory;
-        const totalAssets = totalCurrentAssets + investments;
+        const totalCurrentAssets = cash + bank + receivables + finishedGoodsInventoryValue + rawMaterialInventoryValue + packingMaterialInventory;
+        const totalNonCurrentAssets = investments + fixedAssets + accumulatedDepreciation; // Note: accumulatedDepreciation is a negative value
+        const totalAssets = totalCurrentAssets + totalNonCurrentAssets;
 
         // LIABILITIES
-        const payables = getAccountBalance(state.payableAccounts[0]?.id) + getAccountBalance(state.payableAccounts[1]?.id); // AP + Customs Payable
+        const payables = getAccountBalance(state.payableAccounts[0]?.id) + getAccountBalance(state.payableAccounts[1]?.id);
         const loans = calculateTotalBalance(state.loanAccounts);
         const totalCurrentLiabilities = payables;
         const totalLongTermLiabilities = loans;
@@ -47,12 +119,23 @@ const BalanceSheet: React.FC = () => {
         // EQUITY
         const capital = getAccountBalance(state.capitalAccounts.find(c => c.id === 'CAP-001')?.id || '');
         const openingBalanceEquity = getAccountBalance(state.capitalAccounts.find(c => c.id === 'CAP-002')?.id || '');
-        const totalEquity = capital + openingBalanceEquity + netIncome;
+        
+        // This adjustment is a plug to make the sheet balance due to inventory not being fully journaled.
+        const inventoryValueNotOnBooks = (rawMaterialInventoryValue + finishedGoodsInventoryValue) - getAccountBalance(state.inventoryAccounts[0]?.id);
+        const totalEquity = capital + openingBalanceEquity + netIncome + inventoryValueNotOnBooks;
         
         return {
             assets: {
-                cash, bank, receivables, inventory, investments,
-                totalCurrentAssets, totalAssets
+                cash, bank, receivables, 
+                finishedGoodsInventory: finishedGoodsInventoryValue,
+                rawMaterialInventory: rawMaterialInventoryValue,
+                packingMaterialInventory,
+                investments,
+                fixedAssets,
+                accumulatedDepreciation,
+                totalCurrentAssets, 
+                totalNonCurrentAssets,
+                totalAssets
             },
             liabilities: {
                 payables, loans,
@@ -61,9 +144,9 @@ const BalanceSheet: React.FC = () => {
             equity: {
                 capital, openingBalanceEquity,
                 retainedEarnings: netIncome,
+                inventoryAdjustment: inventoryValueNotOnBooks,
                 totalEquity
-            },
-            netIncomeForPeriod: netIncome
+            }
         };
     }, [asOfDate, state]);
 
@@ -94,12 +177,17 @@ const BalanceSheet: React.FC = () => {
                         <AccountRow label="Cash" value={assets.cash} />
                         <AccountRow label="Bank" value={assets.bank} />
                         <AccountRow label="Accounts Receivable" value={assets.receivables} />
-                        <AccountRow label="Inventory" value={assets.inventory} />
+                        <AccountRow label="Finished Goods Inventory" value={assets.finishedGoodsInventory} />
+                        <AccountRow label="Raw Material Inventory" value={assets.rawMaterialInventory} />
+                        <AccountRow label="Packing Material Inventory" value={assets.packingMaterialInventory} />
                         <AccountRow label="Total Current Assets" value={assets.totalCurrentAssets} isSubtotal />
                     </div>
                      <div className="space-y-2">
                         <h4 className="font-semibold text-slate-700 text-lg">Non-Current Assets</h4>
                         <AccountRow label="Investments" value={assets.investments} />
+                        <AccountRow label="Fixed Assets" value={assets.fixedAssets} />
+                        <AccountRow label="Accumulated Depreciation" value={assets.accumulatedDepreciation} />
+                         <AccountRow label="Total Non-Current Assets" value={assets.totalNonCurrentAssets} isSubtotal />
                     </div>
                     <AccountRow label="Total Assets" value={assets.totalAssets} isTotal />
                 </div>
@@ -123,6 +211,7 @@ const BalanceSheet: React.FC = () => {
                         <AccountRow label="Owner's Capital" value={equity.capital} />
                         <AccountRow label="Opening Balance Equity" value={equity.openingBalanceEquity} />
                         <AccountRow label="Retained Earnings (Net Income)" value={equity.retainedEarnings} />
+                        <AccountRow label="Inventory Adjustment" value={equity.inventoryAdjustment} />
                         <AccountRow label="Total Equity" value={equity.totalEquity} isSubtotal />
                     </div>
                     <AccountRow label="Total Liabilities & Equity" value={liabilities.totalLiabilities + equity.totalEquity} isTotal />

@@ -40,6 +40,16 @@ export interface Supplier {
     subDivisionId?: string;
 }
 
+export interface Vendor {
+    id: string;
+    name: string;
+    contact: string;
+    address: string;
+    defaultCurrency?: Currency;
+    startingBalance?: number;
+}
+
+
 export interface SubSupplier {
     id: string;
     name: string;
@@ -312,6 +322,8 @@ export interface SalesInvoice {
     discountSurcharge?: number; // In USD
     sourceOrderId?: string; // Link back to the OngoingOrder
     containerNumber?: string;
+    logoId?: string;
+    packingColor?: string;
     
     // Freight
     freightForwarderId?: string;
@@ -377,7 +389,7 @@ export interface JournalEntry {
     credit: number; // ALWAYS in Dollar
     description: string;
     entityId?: string;
-    entityType?: 'customer' | 'supplier' | 'commissionAgent' | 'employee' | 'freightForwarder' | 'clearingAgent';
+    entityType?: 'customer' | 'supplier' | 'commissionAgent' | 'employee' | 'freightForwarder' | 'clearingAgent' | 'vendor' | 'fixedAsset';
     originalAmount?: { // Optional for traceability of foreign currency transactions
         amount: number;
         currency: Currency;
@@ -514,9 +526,58 @@ export interface TestEntry {
     text: string;
 }
 
+export interface Logo {
+    id: string;
+    name: string;
+}
+
+export interface PackingMaterialItem {
+    id: string;
+    name: string;
+    unit: 'Roll' | 'Kg' | 'Box' | 'Pcs';
+    openingStock?: number;
+}
+
+export interface PackingMaterialPurchase {
+    id: string;
+    date: string;
+    vendorId: string;
+    itemId: string; // PackingMaterialItem ID
+    quantity: number;
+    rate: number;
+    currency: Currency;
+    conversionRate: number;
+    totalAmountUSD: number;
+}
+
+export interface AssetType {
+    id: string;
+    name: string;
+}
+
+export interface FixedAsset {
+    id: string;
+    name: string;
+    assetTypeId: string;
+    purchaseDate: string;
+    purchaseValue: number;
+    location?: string;
+    status: 'Active' | 'Sold' | 'Scrapped';
+}
+
+export interface DepreciationEntry {
+    id: string;
+    assetId: string;
+    date: string;
+    amount: number;
+    description: string;
+    voucherId: string;
+}
+
 export interface AppState {
     customers: Customer[];
     suppliers: Supplier[];
+    vendors: Vendor[];
     subSuppliers: SubSupplier[];
     commissionAgents: CommissionAgent[];
     items: Item[];
@@ -527,6 +588,7 @@ export interface AppState {
     warehouses: Warehouse[];
     sections: Section[];
     categories: Category[];
+    logos: Logo[];
     freightForwarders: FreightForwarder[];
     clearingAgents: ClearingAgent[];
     banks: Bank[];
@@ -536,6 +598,9 @@ export interface AppState {
     investmentAccounts: InvestmentAccount[];
     expenseAccounts: ExpenseAccount[];
     inventoryAccounts: Account[];
+    packingMaterialInventoryAccounts: Account[];
+    fixedAssetAccounts: Account[];
+    accumulatedDepreciationAccounts: Account[];
     receivableAccounts: Account[];
     revenueAccounts: Account[];
     payableAccounts: Account[];
@@ -545,17 +610,23 @@ export interface AppState {
     hrTasks: HRTask[];
     hrEnquiries: HREnquiry[];
     vehicles: Vehicle[];
+    assetTypes: AssetType[];
+    fixedAssets: FixedAsset[];
+    depreciationEntries: DepreciationEntry[];
     originalOpenings: OriginalOpening[];
     originalPurchases: OriginalPurchased[];
     productions: Production[];
     salesInvoices: SalesInvoice[];
     ongoingOrders: OngoingOrder[];
     finishedGoodsPurchases: FinishedGoodsPurchase[];
+    packingMaterialItems: PackingMaterialItem[];
+    packingMaterialPurchases: PackingMaterialPurchase[];
     logisticsEntries: LogisticsEntry[];
     favoriteCombinations: FavoriteCombination[];
     nextInvoiceNumber: number;
     nextOngoingOrderNumber: number;
     nextFinishedGoodsPurchaseNumber: number;
+    nextPackingMaterialPurchaseNumber: number;
     nextLogisticsSNo: number;
     nextHRTaskId: number;
     nextHREnquiryId: number;
@@ -569,6 +640,9 @@ export interface AppState {
     plannerData: PlannerData;
     plannerLastWeeklyReset: string;
     plannerLastMonthlyReset: string;
+    plannerCustomerIds?: string[];
+    plannerSupplierIds?: string[];
+    plannerExpenseAccountIds?: string[];
 }
 
-export type Module = 'analytics' | 'dashboard' | 'setup' | 'dataEntry' | 'accounting' | 'reports' | 'posting' | 'admin' | 'logistics' | 'hr' | 'test';
+export type Module = 'analytics' | 'dashboard' | 'setup' | 'dataEntry' | 'accounting' | 'reports' | 'posting' | 'admin' | 'logistics' | 'hr' | 'test' | 'chat';

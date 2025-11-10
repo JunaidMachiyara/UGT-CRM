@@ -165,6 +165,8 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
     const [customerId, setCustomerId] = useState('');
     const [invoiceId, setInvoiceId] = useState('');
     const [invoiceDate, setInvoiceDate] = useState('');
+    const [logoId, setLogoId] = useState('');
+    const [packingColor, setPackingColor] = useState('');
     const [divisionId, setDivisionId] = useState('');
     const [subDivisionId, setSubDivisionId] = useState('');
     const [commissionAgentId, setCommissionAgentId] = useState('');
@@ -204,6 +206,10 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
     const commissionAmountRef = useRef<HTMLInputElement>(null);
     const minDate = userProfile?.isAdmin ? '' : new Date().toISOString().split('T')[0];
     
+    const commonColors = [
+        "Blue", "White", "Red", "Green", "Yellow", "Black", "Gray", "Orange", "Purple", "Brown", "Pink"
+    ];
+
     const formatCurrency = (val: number) => val.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
     const availableSubDivisions = useMemo(() => {
@@ -282,6 +288,8 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         setCustomerId('');
         setInvoiceId('');
         setInvoiceDate('');
+        setLogoId('');
+        setPackingColor('');
         setDivisionId('');
         setSubDivisionId('');
         setDiscountSurcharge('');
@@ -368,6 +376,8 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
             status: editingInvoice?.status || InvoiceStatus.Unposted,
             totalBales,
             totalKg,
+            logoId: logoId || undefined,
+            packingColor: packingColor || undefined,
             divisionId: divisionId || undefined,
             subDivisionId: subDivisionId || undefined,
             containerNumber: containerNumber || undefined,
@@ -458,6 +468,8 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         setCustomerId(invoice.customerId);
         setInvoiceId(invoice.id);
         setInvoiceDate(invoice.date);
+        setLogoId(invoice.logoId || '');
+        setPackingColor(invoice.packingColor || '');
         setDivisionId(invoice.divisionId || '');
         setSubDivisionId(invoice.subDivisionId || '');
         setDiscountSurcharge(invoice.discountSurcharge || '');
@@ -687,12 +699,26 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
 
             {subModule === 'new' && (
                 <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end p-4 border rounded-md bg-white">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end p-4 border rounded-md bg-white">
                         <div className="md:col-span-1">
                             <label className="block text-sm font-medium text-slate-700">Customer</label>
                             <select ref={customerRef} value={customerId} onChange={e => setCustomerId(e.target.value)} disabled={!!editingInvoice} className="mt-1 w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-200">
                                 <option value="">Select Customer</option>
                                 {state.customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700">Logo</label>
+                            <select value={logoId} onChange={e => setLogoId(e.target.value)} className="mt-1 w-full p-2 border border-slate-300 rounded-md">
+                                <option value="">Select Logo</option>
+                                {state.logos.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700">Packing Color</label>
+                            <select value={packingColor} onChange={e => setPackingColor(e.target.value)} className="mt-1 w-full p-2 border border-slate-300 rounded-md">
+                                <option value="">Select Color</option>
+                                {commonColors.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                         </div>
                         <div>

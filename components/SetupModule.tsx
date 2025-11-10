@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useData } from '../context/DataContext.tsx';
-import { AppState, Customer, Supplier, Item, OriginalType, Division, Bank, PackingType, LoanAccount, CapitalAccount, InvestmentAccount, CashAccount, ExpenseAccount, Currency, SubDivision, FreightForwarder, ClearingAgent, CommissionAgent, Employee, JournalEntry, JournalEntryType, Production, Section, Module, Category, UserProfile, HRTask, HREnquiry, Vehicle, VehicleStatus, Account, Warehouse, AttendanceRecord, AttendanceStatus, OriginalPurchased, SubSupplier, OriginalProduct } from '../types.ts';
-import { generateCustomerId, generateSupplierId, generateBankId, generateOriginalTypeId, generateDivisionId, generateLoanAccountId, generateCapitalAccountId, generateInvestmentAccountId, generateCashAccountId, generateExpenseAccountId, generateSubDivisionId, generateFreightForwarderId, generateClearingAgentId, generateCommissionAgentId, generateEmployeeId, generateSectionId, generateCategoryId, generateVehicleId, generateWarehouseId, generateItemId, generateSubSupplierId, generateOriginalProductId } from '../utils/idGenerator.ts';
+import { AppState, Customer, Supplier, Item, OriginalType, Division, Bank, PackingType, LoanAccount, CapitalAccount, InvestmentAccount, CashAccount, ExpenseAccount, Currency, SubDivision, FreightForwarder, ClearingAgent, CommissionAgent, Employee, JournalEntry, JournalEntryType, Production, Section, Module, Category, UserProfile, HRTask, HREnquiry, Vehicle, VehicleStatus, Account, Warehouse, AttendanceRecord, AttendanceStatus, OriginalPurchased, SubSupplier, OriginalProduct, Logo, Vendor, AssetType } from '../types.ts';
+import { generateCustomerId, generateSupplierId, generateBankId, generateOriginalTypeId, generateDivisionId, generateLoanAccountId, generateCapitalAccountId, generateInvestmentAccountId, generateCashAccountId, generateExpenseAccountId, generateSubDivisionId, generateFreightForwarderId, generateClearingAgentId, generateCommissionAgentId, generateEmployeeId, generateSectionId, generateCategoryId, generateVehicleId, generateWarehouseId, generateItemId, generateSubSupplierId, generateOriginalProductId, generateLogoId, generateVendorId, generateAssetTypeId } from '../utils/idGenerator.ts';
 import Modal from './ui/Modal.tsx';
 import AttendanceRegister from './AttendanceRegister.tsx';
 import SalaryCalculator from './SalaryCalculator.tsx';
@@ -711,7 +711,7 @@ const Notification: React.FC<{ message: string; onTimeout: () => void }> = ({ me
     );
 };
 
-type Entity = Customer | Supplier | Item | OriginalType | Division | Bank | LoanAccount | CapitalAccount | InvestmentAccount | CashAccount | ExpenseAccount | SubDivision | FreightForwarder | ClearingAgent | CommissionAgent | Employee | Section | Category | Vehicle | Warehouse | SubSupplier | OriginalProduct;
+type Entity = Customer | Supplier | Vendor | Item | OriginalType | Division | Bank | LoanAccount | CapitalAccount | InvestmentAccount | CashAccount | ExpenseAccount | SubDivision | FreightForwarder | ClearingAgent | CommissionAgent | Employee | Section | Category | Vehicle | Warehouse | SubSupplier | OriginalProduct | Logo | AssetType;
 
 interface FieldConfig<T> {
     key: keyof T;
@@ -736,7 +736,7 @@ interface CrudManagerProps<T extends Entity & { id: string, name?: string, fullN
     columns: ColumnConfig<T>[];
     fields: FieldConfig<T>[];
     idGenerator?: (items: T[]) => string;
-    entityName: 'customers' | 'suppliers' | 'commissionAgents' | 'items' | 'originalTypes' | 'divisions' | 'subDivisions' | 'freightForwarders' | 'clearingAgents' | 'banks' | 'loanAccounts' | 'capitalAccounts' | 'investmentAccounts' | 'cashAccounts' | 'expenseAccounts' | 'employees' | 'sections' | 'categories' | 'vehicles' | 'warehouses' | 'subSuppliers' | 'originalProducts';
+    entityName: 'customers' | 'suppliers' | 'vendors' | 'commissionAgents' | 'items' | 'originalTypes' | 'divisions' | 'subDivisions' | 'freightForwarders' | 'clearingAgents' | 'banks' | 'loanAccounts' | 'capitalAccounts' | 'investmentAccounts' | 'cashAccounts' | 'expenseAccounts' | 'employees' | 'sections' | 'categories' | 'vehicles' | 'warehouses' | 'subSuppliers' | 'originalProducts' | 'logos' | 'assetTypes';
     initialState: Omit<T, 'id'> & { id?: string };
     showNotification: (msg: string) => void;
     state: AppState;
@@ -938,7 +938,7 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
             let newBalanceInUSD = newBalance;
             let originalAmountData: { amount: number; currency: Currency } | undefined;
     
-            const relevantEntityTypes = ['customers', 'suppliers', 'cashAccounts', 'banks', 'commissionAgents', 'freightForwarders', 'clearingAgents', 'employees'];
+            const relevantEntityTypes = ['customers', 'suppliers', 'vendors', 'cashAccounts', 'banks', 'commissionAgents', 'freightForwarders', 'clearingAgents', 'employees'];
             if (relevantEntityTypes.includes(entityName)) {
                 const newAccount = item as T & { currency?: Currency, defaultCurrency?: Currency };
                 const oldAccount = oldItem as T & { currency?: Currency, defaultCurrency?: Currency } | undefined;
@@ -979,7 +979,7 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
         
                 let debitEntry: JournalEntry | null = null;
                 let creditEntry: JournalEntry | null = null;
-                let entityType: 'customer' | 'supplier' | 'commissionAgent' | 'employee' | 'freightForwarder' | 'clearingAgent' | undefined;
+                let entityType: 'customer' | 'supplier' | 'vendor' | 'commissionAgent' | 'employee' | 'freightForwarder' | 'clearingAgent' | undefined;
         
                 const isPositive = newBalance > 0;
                 const amount = Math.abs(newBalanceInUSD);
@@ -996,11 +996,13 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
                         }
                         break;
                     case 'suppliers':
+                    case 'vendors':
                     case 'commissionAgents':
                     case 'freightForwarders':
                     case 'clearingAgents':
                     case 'employees':
                         if (entityName === 'suppliers') entityType = 'supplier';
+                        if (entityName === 'vendors') entityType = 'vendor';
                         if (entityName === 'commissionAgents') entityType = 'commissionAgent';
                         if (entityName === 'employees') entityType = 'employee';
                         if (entityName === 'freightForwarders') entityType = 'freightForwarder';
@@ -1484,7 +1486,8 @@ const SetupModule: React.FC<SetupModuleProps> = ({ userProfile, isModalMode = fa
     const crudComponents = useMemo(() => ({
         partners: [
             { title: 'Customers', entityName: 'customers', data: state.customers, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }, { key: 'contact', header: 'Contact' }, { key: 'address', header: 'Address' }, { key: 'divisionId', header: 'Division', render: (item: Customer) => state.divisions.find(d => d.id === item.divisionId)?.name || '' }, { key: 'defaultCurrency', header: 'Currency' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }, { key: 'contact', label: 'Contact', type: 'text' }, { key: 'address', label: 'Address', type: 'text' }, { key: 'divisionId', label: 'Division', type: 'select', options: state.divisions.map(d => ({ value: d.id, label: d.name })) }, { key: 'defaultCurrency', label: 'Default Currency', type: 'select', options: Object.values(Currency).map(c => ({ value: c, label: c })) }, { key: 'startingBalance', label: 'Opening Balance', type: 'number' }], idGenerator: generateCustomerId, initialState: { name: '', contact: '', address: '', divisionId: '', defaultCurrency: Currency.Dollar } as any, icon: Icons.users },
-            { title: 'Suppliers', entityName: 'suppliers', data: state.suppliers, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }, { key: 'contact', header: 'Contact' }, { key: 'defaultCurrency', header: 'Currency' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }, { key: 'contact', label: 'Contact', type: 'text' }, { key: 'address', label: 'Address', type: 'text' }, { key: 'defaultCurrency', label: 'Default Currency', type: 'select', options: Object.values(Currency).map(c => ({ value: c, label: c })) }, { key: 'startingBalance', label: 'Opening Balance', type: 'number' }], idGenerator: generateSupplierId, initialState: { name: '', contact: '', address: '' } as any, icon: Icons.truck },
+            { title: 'Suppliers (Raw Material)', entityName: 'suppliers', data: state.suppliers, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }, { key: 'contact', header: 'Contact' }, { key: 'defaultCurrency', header: 'Currency' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }, { key: 'contact', label: 'Contact', type: 'text' }, { key: 'address', label: 'Address', type: 'text' }, { key: 'defaultCurrency', label: 'Default Currency', type: 'select', options: Object.values(Currency).map(c => ({ value: c, label: c })) }, { key: 'startingBalance', label: 'Opening Balance', type: 'number' }], idGenerator: generateSupplierId, initialState: { name: '', contact: '', address: '' } as any, icon: Icons.truck },
+            { title: 'Vendors (Services/Packing)', entityName: 'vendors', data: state.vendors, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }, { key: 'contact', header: 'Contact' }, { key: 'defaultCurrency', header: 'Currency' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }, { key: 'contact', label: 'Contact', type: 'text' }, { key: 'address', label: 'Address', type: 'text' }, { key: 'defaultCurrency', label: 'Default Currency', type: 'select', options: Object.values(Currency).map(c => ({ value: c, label: c })) }, { key: 'startingBalance', label: 'Opening Balance', type: 'number' }], idGenerator: generateVendorId, initialState: { name: '', contact: '', address: '' } as any, icon: Icons.briefcase },
             { title: 'Sub-Suppliers', entityName: 'subSuppliers', data: state.subSuppliers, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }, { key: 'supplierId', header: 'Main Supplier', render: (item: SubSupplier) => state.suppliers.find(s => s.id === item.supplierId)?.name || '' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }, { key: 'supplierId', label: 'Main Supplier', type: 'select', options: state.suppliers.map(s => ({ value: s.id, label: s.name })), required: true }, { key: 'contact', label: 'Contact', type: 'text' }, { key: 'address', label: 'Address', type: 'text' }], idGenerator: generateSubSupplierId, initialState: { name: '', supplierId: '' } as any, icon: Icons.users },
             { title: 'Commission Agents', entityName: 'commissionAgents', data: state.commissionAgents, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Agent Name' }, { key: 'contact', header: 'Contact' }, { key: 'defaultCurrency', header: 'Currency' }], fields: [{ key: 'name', label: 'Agent Name', type: 'text', required: true }, { key: 'contact', label: 'Contact', type: 'text' }, { key: 'address', label: 'Address', type: 'text' }, { key: 'defaultCurrency', label: 'Default Currency', type: 'select', options: Object.values(Currency).map(c => ({ value: c, label: c })) }, { key: 'startingBalance', label: 'Opening Balance', type: 'number' }], idGenerator: generateCommissionAgentId, initialState: { name: '', contact: '', address: '', defaultCurrency: Currency.Dollar } as any, icon: Icons.briefcase },
             { title: 'Freight Forwarders', entityName: 'freightForwarders', data: state.freightForwarders, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Forwarder Name' }, { key: 'contact', header: 'Contact' }, { key: 'defaultCurrency', header: 'Currency' }], fields: [{ key: 'name', label: 'Forwarder Name', type: 'text', required: true }, { key: 'contact', label: 'Contact', type: 'text' }, { key: 'address', label: 'Address', type: 'text' }, { key: 'defaultCurrency', label: 'Default Currency', type: 'select', options: Object.values(Currency).map(c => ({ value: c, label: c })) }, { key: 'startingBalance', label: 'Opening Balance', type: 'number' }], idGenerator: generateFreightForwarderId, initialState: { name: '', contact: '', address: '', defaultCurrency: Currency.Dollar } as any, icon: Icons.truck },
@@ -1501,6 +1504,10 @@ const SetupModule: React.FC<SetupModuleProps> = ({ userProfile, isModalMode = fa
             { title: 'Divisions', entityName: 'divisions', data: state.divisions, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }], idGenerator: generateDivisionId, initialState: { name: '' } as any, icon: Icons['office-building'] },
             { title: 'Sub-Divisions', entityName: 'subDivisions', data: state.subDivisions, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }, { key: 'divisionId', header: 'Parent Division', render: (item: SubDivision) => state.divisions.find(d => d.id === item.divisionId)?.name || '' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }, { key: 'divisionId', label: 'Parent Division', type: 'select', options: state.divisions.map(d => ({ value: d.id, label: d.name })), required: true }], idGenerator: generateSubDivisionId, initialState: { name: '', divisionId: '' } as any, icon: Icons['office-building'] },
             { title: 'Warehouses', entityName: 'warehouses', data: state.warehouses, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }], idGenerator: generateWarehouseId, initialState: { name: '' } as any, icon: Icons.warehouse },
+            { title: 'Logos', entityName: 'logos', data: state.logos, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }], idGenerator: generateLogoId, initialState: { name: '' } as any, icon: Icons.tag },
+        ],
+        assets: [
+            { title: 'Asset Types', entityName: 'assetTypes', data: state.assetTypes, columns: [{ key: 'id', header: 'ID' }, { key: 'name', header: 'Name' }], fields: [{ key: 'name', label: 'Name', type: 'text', required: true }], idGenerator: generateAssetTypeId, initialState: { name: '' } as any, icon: Icons.briefcase },
         ],
         accounts: [
             { title: 'Banks', entityName: 'banks', data: state.banks, columns: [{ key: 'id', header: 'ID' }, { key: 'accountTitle', header: 'Account Title' }, { key: 'accountNumber', header: 'Account Number' }, { key: 'currency', header: 'Currency' }], fields: [{ key: 'accountTitle', label: 'Account Title', type: 'text', required: true }, { key: 'accountNumber', label: 'Account Number', type: 'text' }, { key: 'currency', label: 'Currency', type: 'select', options: Object.values(Currency).map(c => ({ value: c, label: c })), required: true }, { key: 'startingBalance', label: 'Opening Balance', type: 'number' }], idGenerator: generateBankId, initialState: { accountTitle: '', accountNumber: '', currency: Currency.Dollar } as any, icon: Icons['credit-card'] },
@@ -1612,6 +1619,12 @@ const SetupModule: React.FC<SetupModuleProps> = ({ userProfile, isModalMode = fa
                                 <CrudManager key={crudProps.entityName} {...(crudProps as any)} state={state} showNotification={showNotification} isOpen={activeModal === crudProps.entityName} onOpen={() => setActiveModal(crudProps.entityName)} onClose={handleModalClose} onSaveSuccess={handleSaveSuccess} onOpenImportModal={(entity) => setImportModalConfig({ isOpen: true, entityName: entity as ImportableEntity })} userProfile={userProfile} isInitiallyExpanded={initialSection === crudProps.entityName} />
                             ))}
                         </div>
+                         <div className="space-y-4">
+                            <h2 className="text-2xl font-bold text-slate-800">Asset Management</h2>
+                            {crudComponents.assets.map(crudProps => (
+                                <CrudManager key={crudProps.entityName} {...(crudProps as any)} state={state} showNotification={showNotification} isOpen={activeModal === crudProps.entityName} onOpen={() => setActiveModal(crudProps.entityName)} onClose={handleModalClose} onSaveSuccess={handleSaveSuccess} onOpenImportModal={(entity) => setImportModalConfig({ isOpen: true, entityName: entity as ImportableEntity })} userProfile={userProfile} isInitiallyExpanded={initialSection === crudProps.entityName} />
+                            ))}
+                        </div>
                     </div>
                     <div className="space-y-8">
                         <div className="space-y-4">
@@ -1712,7 +1725,7 @@ const TasksModule: React.FC<{ userProfile: UserProfile | null }> = ({ userProfil
                     <span className="text-slate-500">{Icons['clipboard-list']}</span>
                     <h3 className="text-lg font-semibold text-slate-800">Task Management</h3>
                 </div>
-                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-slate-500 transition-transform transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-slate-500 transition-transform transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </div>
             <div className={`transition-all duration-500 ease-in-out overflow-hidden ${isExpanded ? 'max-h-[5000px]' : 'max-h-0'}`}>
                 <div className="p-4 space-y-6">
@@ -1834,7 +1847,7 @@ const EnquiriesModule: React.FC<{ userProfile: UserProfile | null }> = ({ userPr
                     <span className="text-slate-500">{Icons['question-mark-circle']}</span>
                     <h3 className="text-lg font-semibold text-slate-800">Enquiry Management</h3>
                 </div>
-                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-slate-500 transition-transform transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-slate-500 transition-transform transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </div>
              <div className={`transition-all duration-500 ease-in-out overflow-hidden ${isExpanded ? 'max-h-[5000px]' : 'max-h-0'}`}>
                 <div className="p-4 space-y-6">

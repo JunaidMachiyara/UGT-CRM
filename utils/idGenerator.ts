@@ -1,4 +1,4 @@
-import { Customer, Supplier, Bank, OriginalType, Division, Account, LoanAccount, CapitalAccount, InvestmentAccount, CashAccount, ExpenseAccount, SubDivision, FreightForwarder, ClearingAgent, CommissionAgent, Employee, Section, Category, Vehicle, Warehouse, Item, OriginalProduct, SubSupplier } from '../types.ts';
+import { Customer, Supplier, Bank, OriginalType, Division, Account, LoanAccount, CapitalAccount, InvestmentAccount, CashAccount, ExpenseAccount, SubDivision, FreightForwarder, ClearingAgent, CommissionAgent, Employee, Section, Category, Vehicle, Warehouse, Item, OriginalProduct, SubSupplier, Logo, PackingMaterialItem, Vendor, AssetType, FixedAsset } from '../types.ts';
 
 const generateId = (prefix: string, items: { id: string }[]): string => {
   const lastId = items.reduce((maxId, item) => {
@@ -15,6 +15,7 @@ const generateId = (prefix: string, items: { id: string }[]): string => {
 
 export const generateCustomerId = (customers: Customer[]): string => generateId('CUS', customers);
 export const generateSupplierId = (suppliers: Supplier[]): string => generateId('SUP', suppliers);
+export const generateVendorId = (vendors: Vendor[]): string => generateId('VND', vendors);
 export const generateCommissionAgentId = (items: CommissionAgent[]): string => generateId('CA', items);
 export const generateBankId = (banks: Bank[]): string => generateId('BANK', banks);
 export const generateCashAccountId = (accounts: CashAccount[]): string => generateId('CASH', accounts);
@@ -35,7 +36,11 @@ export const generateVehicleId = (items: Vehicle[]): string => generateId('VEH',
 export const generateWarehouseId = (items: Warehouse[]): string => generateId('WH', items);
 export const generateOriginalProductId = (items: OriginalProduct[]): string => generateId('OP', items);
 export const generateSubSupplierId = (items: SubSupplier[]): string => generateId('SSUP', items);
+export const generateLogoId = (items: Logo[]): string => generateId('LOGO', items);
 export const generateItemId = (items: Item[]): string => generateId('ITM', items);
+export const generatePackingMaterialItemId = (items: PackingMaterialItem[]): string => generateId('PMI', items);
+export const generateAssetTypeId = (items: AssetType[]): string => generateId('AT', items);
+export const generateFixedAssetId = (items: FixedAsset[]): string => generateId('FA', items);
 
 
 export const generateInvoiceId = (sequentialNumber: number): string => {
@@ -63,4 +68,13 @@ export const generateFinishedGoodsPurchaseId = (sequentialNumber: number): strin
   const yy = String(date.getFullYear()).slice(-2);
   
   return `FGP${sequentialNumber}_${dd}_${mm}_${yy}`;
+};
+
+export const generatePackingMaterialPurchaseId = (sequentialNumber: number): string => {
+  const date = new Date();
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yy = String(date.getFullYear()).slice(-2);
+  
+  return `PMP${sequentialNumber}_${dd}_${mm}_${yy}`;
 };

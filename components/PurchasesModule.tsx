@@ -94,7 +94,6 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
     const [purchaseToSave, setPurchaseToSave] = useState<OriginalPurchased | null>(null);
     const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
     const [hasPrinted, setHasPrinted] = useState(false);
-    const [containerError, setContainerError] = useState<string | null>(null);
 
     const availableSubDivisions = useMemo(() => {
         if (!formData.divisionId) return [];
@@ -156,17 +155,6 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
     const handlePrepareSummary = (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (formData.containerNumber && formData.containerNumber.trim() !== '') {
-            const trimmedContainerNumber = formData.containerNumber.trim().toLowerCase();
-            const isDuplicateInOriginals = state.originalPurchases.some(p => p.containerNumber && p.containerNumber.trim().toLowerCase() === trimmedContainerNumber);
-            const isDuplicateInFinished = state.finishedGoodsPurchases.some(p => p.containerNumber && p.containerNumber.trim().toLowerCase() === trimmedContainerNumber);
-
-            if (isDuplicateInOriginals || isDuplicateInFinished) {
-                setContainerError(`DUPLICATE CONTAINER: The container number "${formData.containerNumber}" is already in use. Please enter a different one.`);
-                return;
-            }
-        }
-
         const fullPurchaseData: OriginalPurchased = {
             id: `pur_orig_${Date.now()}`,
             ...getInitialState(),
@@ -215,9 +203,15 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
         const jeDate = purchaseToSave.date;
         const baseDescription = `Purchase from ${state.suppliers.find(s => s.id === purchaseToSave.supplierId)?.name}`;
         
-        const itemValueUSD = (purchaseToSave.quantityPurchased * purchaseToSave.rate * (purchaseToSave.conversionRate || 1)) + (purchaseToSave.discountSurcharge || 0);
+        const itemValueFC = purchaseToSave.quantityPurchased * purchaseToSave.rate;
+        const itemValueUSD = (itemValueFC * (purchaseToSave.conversionRate || 1)) + (purchaseToSave.discountSurcharge || 0);
+
         const purchaseDebit: JournalEntry = { id: `je-d-${purchaseToSave.id}`, voucherId: `JV-${purchaseToSave.id}`, date: jeDate, entryType: JournalEntryType.Journal, account: 'EXP-004', debit: itemValueUSD, credit: 0, description: baseDescription };
-        const supplierCredit: JournalEntry = { id: `je-c-${purchaseToSave.id}`, voucherId: `JV-${purchaseToSave.id}`, date: jeDate, entryType: JournalEntryType.Journal, account: 'AP-001', debit: 0, credit: itemValueUSD, description: baseDescription, entityId: purchaseToSave.supplierId, entityType: 'supplier' };
+        const supplierCredit: JournalEntry = { 
+            id: `je-c-${purchaseToSave.id}`, voucherId: `JV-${purchaseToSave.id}`, date: jeDate, entryType: JournalEntryType.Journal, account: 'AP-001', 
+            debit: 0, credit: itemValueUSD, description: baseDescription, entityId: purchaseToSave.supplierId, entityType: 'supplier',
+            originalAmount: purchaseToSave.currency !== Currency.Dollar ? { amount: itemValueFC, currency: purchaseToSave.currency } : undefined,
+        };
         dispatch({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: purchaseDebit }});
         dispatch({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: supplierCredit }});
 
@@ -232,7 +226,11 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
                 const costValueUSD = (cost.amount || 0) * cost.currencyData.conversionRate;
                 const costDesc = `${cost.type} for INV ${purchaseToSave.id} from ${cost.name}`;
                 const debit: JournalEntry = { id: `je-d-${cost.type.toLowerCase()}-${purchaseToSave.id}`, voucherId: `JV-${purchaseToSave.id}`, date: jeDate, entryType: JournalEntryType.Journal, account: cost.account, debit: costValueUSD, credit: 0, description: costDesc };
-                const credit: JournalEntry = { id: `je-c-${cost.type.toLowerCase()}-${purchaseToSave.id}`, voucherId: `JV-${purchaseToSave.id}`, date: jeDate, entryType: JournalEntryType.Journal, account: 'AP-001', debit: 0, credit: costValueUSD, description: costDesc, entityId: cost.id, entityType: cost.entityType };
+                const credit: JournalEntry = { 
+                    id: `je-c-${cost.type.toLowerCase()}-${purchaseToSave.id}`, voucherId: `JV-${purchaseToSave.id}`, date: jeDate, entryType: JournalEntryType.Journal, 
+                    account: 'AP-001', debit: 0, credit: costValueUSD, description: costDesc, entityId: cost.id, entityType: cost.entityType,
+                    originalAmount: cost.currencyData.currency !== Currency.Dollar ? { amount: cost.amount || 0, currency: cost.currencyData.currency } : undefined
+                };
                 dispatch({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: debit }});
                 dispatch({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: credit }});
             }
@@ -338,18 +336,6 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
 
                 <div className="flex justify-end"><button type="submit" disabled={!formData.supplierId} className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300">Finalize Purchase</button></div>
             </form>
-
-            {containerError && (
-                <Modal isOpen={!!containerError} onClose={() => setContainerError(null)} title="Validation Error">
-                    <div className="text-slate-700">
-                        <p className="font-semibold text-red-600">Duplicate Container Number</p>
-                        <p className="mt-2">{containerError}</p>
-                        <div className="flex justify-end mt-6">
-                            <button onClick={() => setContainerError(null)} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">OK</button>
-                        </div>
-                    </div>
-                </Modal>
-            )}
 
             {purchaseToSave && (
                 <PurchaseSummaryModal 

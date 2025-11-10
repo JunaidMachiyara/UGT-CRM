@@ -259,32 +259,77 @@ const LedgerReport: React.FC = () => {
         }
     }, [accountCurrencyInfo]);
 
-    const customerSummaryData = useMemo(() => {
-        if (filters.accountType !== 'Customer' || filters.accountId) {
-            return [];
+    const summaryReportData = useMemo(() => {
+        if (filters.accountId || filters.accountType === 'All') {
+            return null;
         }
-        const receivableAccountId = state.receivableAccounts[0]?.id;
-        if (!receivableAccountId) return [];
-        
-        return state.customers.map(customer => {
-            const relevantEntries = state.journalEntries.filter(
-                je => je.account === receivableAccountId && je.entityId === customer.id
-            );
-            const openingBalance = relevantEntries.filter(je => je.date < filters.startDate).reduce((bal, je) => bal + je.debit - je.credit, 0);
-            const periodEntries = relevantEntries.filter(je => je.date >= filters.startDate && je.date <= filters.endDate);
-            const totalDebit = periodEntries.reduce((sum, je) => sum + je.debit, 0);
-            const totalCredit = periodEntries.reduce((sum, je) => sum + je.credit, 0);
-            const closingBalance = openingBalance + totalDebit - totalCredit;
     
-            return {
-                id: customer.id,
-                name: customer.name,
-                openingBalance,
-                totalDebit,
-                totalCredit,
-                closingBalance
-            };
-        });
+        const calculateSummary = (
+            entityList: { id: string; name: string; [key: string]: any }[],
+            isEntityBased: boolean,
+            generalAccountId?: string
+        ) => {
+            if (isEntityBased && !generalAccountId) return [];
+    
+            return entityList.map(entity => {
+                const relevantEntries = state.journalEntries.filter(je =>
+                    isEntityBased
+                        ? (je.account === generalAccountId && je.entityId === entity.id)
+                        : (je.account === entity.id)
+                );
+    
+                const openingBalance = relevantEntries
+                    .filter(je => je.date < filters.startDate)
+                    .reduce((bal, je) => bal + je.debit - je.credit, 0);
+    
+                const periodEntries = relevantEntries.filter(je => je.date >= filters.startDate && je.date <= filters.endDate);
+                const totalDebit = periodEntries.reduce((sum, je) => sum + je.debit, 0);
+                const totalCredit = periodEntries.reduce((sum, je) => sum + je.credit, 0);
+                const closingBalance = openingBalance + totalDebit - totalCredit;
+    
+                return {
+                    id: entity.id,
+                    name: entity.name,
+                    openingBalance,
+                    totalDebit,
+                    totalCredit,
+                    closingBalance
+                };
+            });
+        };
+    
+        const payableAccountId = state.payableAccounts.find(acc => acc.name === 'Accounts Payable')?.id;
+    
+        switch (filters.accountType) {
+            case 'Customer':
+                return calculateSummary(state.customers, true, state.receivableAccounts[0]?.id);
+            case 'Supplier':
+                return calculateSummary(state.suppliers, true, payableAccountId);
+            case 'Commission Agent':
+                return calculateSummary(state.commissionAgents, true, payableAccountId);
+            case 'Freight Forwarder':
+                return calculateSummary(state.freightForwarders, true, payableAccountId);
+            case 'Clearing Agent':
+                return calculateSummary(state.clearingAgents, true, payableAccountId);
+            case 'Employee':
+                return calculateSummary(state.employees.map(e => ({ ...e, name: e.fullName })), true, payableAccountId);
+            case 'Bank':
+                return calculateSummary(state.banks.map(b => ({ ...b, name: b.accountTitle })), false);
+            case 'Cash':
+                return calculateSummary(state.cashAccounts, false);
+            case 'Loan':
+                return calculateSummary(state.loanAccounts, false);
+            case 'Capital':
+                return calculateSummary(state.capitalAccounts, false);
+            case 'Investment':
+                return calculateSummary(state.investmentAccounts, false);
+            case 'Expense':
+                return calculateSummary(state.expenseAccounts, false);
+            case 'Revenue':
+                 return calculateSummary(state.revenueAccounts, false);
+            default:
+                return null;
+        }
     }, [filters, state]);
     
     const allAccountsSummaryData = useMemo(() => {
@@ -462,38 +507,44 @@ const LedgerReport: React.FC = () => {
         </div>
     );
     
-    const renderCustomerSummary = () => (
-        <div className="overflow-x-auto">
-            <table className="w-full text-left table-auto text-sm">
-                <thead>
-                    <tr className="bg-slate-100">
-                        <th className="p-2 font-semibold text-slate-600">Customer</th>
-                        <th className="p-2 font-semibold text-slate-600 text-right">Opening Balance</th>
-                        <th className="p-2 font-semibold text-slate-600 text-right">Total Debit</th>
-                        <th className="p-2 font-semibold text-slate-600 text-right">Total Credit</th>
-                        <th className="p-2 font-semibold text-slate-600 text-right">Closing Balance</th>
-                        <th className="p-2 font-semibold text-slate-600 text-center">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {customerSummaryData.map(c => (
-                        <tr key={c.id} className="border-b hover:bg-slate-50">
-                            <td className="p-2 text-slate-800">{c.name}</td>
-                            <td className="p-2 text-slate-800 text-right">{formatCurrency(c.openingBalance)} {getBalanceSuffix(c.openingBalance)}</td>
-                            <td className="p-2 text-slate-800 text-right">{c.totalDebit.toFixed(2)}</td>
-                            <td className="p-2 text-slate-800 text-right">{c.totalCredit.toFixed(2)}</td>
-                            <td className="p-2 text-slate-800 text-right font-medium">{formatCurrency(c.closingBalance)} {getBalanceSuffix(c.closingBalance)}</td>
-                            <td className="p-2 text-center">
-                                <button onClick={() => handleFilterChange('accountId', c.id)} className="text-blue-600 hover:underline text-xs font-semibold">
-                                    View Ledger
-                                </button>
-                            </td>
+    const renderSummaryReport = () => {
+        if (!summaryReportData || summaryReportData.length === 0) return (
+            <p className="text-center text-slate-500 py-8">No accounts with balances found for this account type.</p>
+        );
+    
+        return (
+            <div className="overflow-x-auto">
+                <table className="w-full text-left table-auto text-sm">
+                    <thead>
+                        <tr className="bg-slate-100">
+                            <th className="p-2 font-semibold text-slate-600">{filters.accountType}</th>
+                            <th className="p-2 font-semibold text-slate-600 text-right">Opening Balance</th>
+                            <th className="p-2 font-semibold text-slate-600 text-right">Total Debit</th>
+                            <th className="p-2 font-semibold text-slate-600 text-right">Total Credit</th>
+                            <th className="p-2 font-semibold text-slate-600 text-right">Closing Balance</th>
+                            <th className="p-2 font-semibold text-slate-600 text-center">Actions</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    );
+                    </thead>
+                    <tbody>
+                        {summaryReportData.map(c => (
+                            <tr key={c.id} className="border-b hover:bg-slate-50">
+                                <td className="p-2 text-slate-800">{c.name}</td>
+                                <td className="p-2 text-slate-800 text-right">{formatCurrency(c.openingBalance)} {getBalanceSuffix(c.openingBalance)}</td>
+                                <td className="p-2 text-slate-800 text-right">{c.totalDebit.toFixed(2)}</td>
+                                <td className="p-2 text-slate-800 text-right">{c.totalCredit.toFixed(2)}</td>
+                                <td className="p-2 text-slate-800 text-right font-medium">{formatCurrency(c.closingBalance)} {getBalanceSuffix(c.closingBalance)}</td>
+                                <td className="p-2 text-center">
+                                    <button onClick={() => handleFilterChange('accountId', c.id)} className="text-blue-600 hover:underline text-xs font-semibold">
+                                        View Ledger
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
 
     const renderAllAccountsSummary = () => (
         <div className="overflow-x-auto">
@@ -561,7 +612,7 @@ const LedgerReport: React.FC = () => {
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Account</label>
                         <select value={filters.accountId} onChange={e => handleFilterChange('accountId', e.target.value)} className="w-full p-2 border border-slate-300 rounded-md text-sm" disabled={!filters.accountType || filters.accountType === 'All'}>
-                            <option value="">{filters.accountType === 'Customer' ? 'All Customers (Summary)' : 'Select Account...'}</option>
+                            <option value="">{`All ${filters.accountType}s (Summary)`}</option>
                             {accountOptions.map(acc => <option key={acc.id} value={acc.id}>{('name' in acc ? acc.name : (acc as any).accountTitle) || acc.id}</option>)}
                         </select>
                     </div>
@@ -585,9 +636,9 @@ const LedgerReport: React.FC = () => {
                 ? renderAllAccountsSummary()
                 : filters.accountId
                 ? renderDetailedLedger()
-                : filters.accountType === 'Customer'
-                ? renderCustomerSummary()
-                : <p className="text-slate-500 text-center py-8">Please select an account type and an account to generate a ledger.</p>
+                : summaryReportData
+                ? renderSummaryReport()
+                : <p className="text-slate-500 text-center py-8">Please select an account to generate a ledger.</p>
             }
 
 
