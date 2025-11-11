@@ -28,12 +28,15 @@ const VoucherViewModal: React.FC<{ voucherId: string; onClose: () => void; state
         ...state.cashAccounts.map(c => ({ id: c.id, name: `${c.name} (Cash)` })),
         ...state.customers.map(c => ({ id: c.id, name: `${c.name} (Customer)`})),
         ...state.suppliers.map(s => ({ id: s.id, name: `${s.name} (Supplier)`})),
+        ...state.vendors.map(v => ({ id: v.id, name: `${v.name} (Vendor)` })),
         ...state.commissionAgents.map(ca => ({ id: ca.id, name: `${ca.name} (Commission Agent)`})),
         ...state.employees.map(e => ({ id: e.id, name: e.fullName })),
         ...state.freightForwarders.map(e => ({ id: e.id, name: e.name })),
         ...state.clearingAgents.map(e => ({ id: e.id, name: e.name })),
         ...state.loanAccounts, ...state.capitalAccounts, ...state.investmentAccounts, ...state.expenseAccounts,
         ...state.receivableAccounts, ...state.payableAccounts, ...state.revenueAccounts,
+        ...state.inventoryAccounts, ...state.packingMaterialInventoryAccounts, ...state.fixedAssetAccounts,
+        ...state.accumulatedDepreciationAccounts,
     ], [state]);
     
     const getAccountName = (entry: JournalEntry) => {
@@ -41,10 +44,12 @@ const VoucherViewModal: React.FC<{ voucherId: string; onClose: () => void; state
             switch(entry.entityType) {
                 case 'customer': return state.customers.find(c => c.id === entry.entityId)?.name || entry.entityId;
                 case 'supplier': return state.suppliers.find(s => s.id === entry.entityId)?.name || entry.entityId;
+                case 'vendor': return state.vendors.find(v => v.id === entry.entityId)?.name || entry.entityId;
                 case 'commissionAgent': return state.commissionAgents.find(ca => ca.id === entry.entityId)?.name || entry.entityId;
                 case 'employee': return state.employees.find(e => e.id === entry.entityId)?.fullName || entry.entityId;
                 case 'freightForwarder': return state.freightForwarders.find(e => e.id === entry.entityId)?.name || entry.entityId;
                 case 'clearingAgent': return state.clearingAgents.find(e => e.id === entry.entityId)?.name || entry.entityId;
+                case 'fixedAsset': return state.fixedAssets.find(e => e.id === entry.entityId)?.name || entry.entityId;
             }
         }
         return allAccounts.find(acc => acc.id === entry.account)?.name || entry.account;
@@ -77,6 +82,7 @@ const VoucherViewModal: React.FC<{ voucherId: string; onClose: () => void; state
                     <thead>
                         <tr className="bg-slate-50">
                             <th className="p-2 font-semibold text-slate-600">Account</th>
+                            <th className="p-2 font-semibold text-slate-600">Description</th>
                             <th className="p-2 font-semibold text-slate-600 text-right">Debit</th>
                             <th className="p-2 font-semibold text-slate-600 text-right">Credit</th>
                         </tr>
@@ -85,6 +91,7 @@ const VoucherViewModal: React.FC<{ voucherId: string; onClose: () => void; state
                         {entries.map(entry => (
                             <tr key={entry.id} className="border-b">
                                 <td className="p-2 text-slate-700">{getAccountName(entry)}</td>
+                                <td className="p-2 text-slate-700">{entry.description}</td>
                                 <td className="p-2 text-slate-700 text-right">{entry.debit > 0 ? entry.debit.toFixed(2) : '-'}</td>
                                 <td className="p-2 text-slate-700 text-right">{entry.credit > 0 ? entry.credit.toFixed(2) : '-'}</td>
                             </tr>
@@ -92,7 +99,7 @@ const VoucherViewModal: React.FC<{ voucherId: string; onClose: () => void; state
                     </tbody>
                     <tfoot>
                         <tr className="font-bold bg-slate-100">
-                            <td className="p-2 text-right text-slate-800">Total</td>
+                            <td colSpan={2} className="p-2 text-right text-slate-800">Total</td>
                             <td className="p-2 text-right text-slate-800">${totalDebit.toFixed(2)}</td>
                             <td className="p-2 text-right text-slate-800">${totalCredit.toFixed(2)}</td>
                         </tr>
@@ -111,6 +118,8 @@ const VoucherViewModal: React.FC<{ voucherId: string; onClose: () => void; state
     );
 };
 
+type JournalItem = { account: string; debit: string; credit: string; description: string };
+
 const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotification: (msg: string) => void }> = ({ userProfile, showNotification }) => {
     const { state, dispatch } = useData();
     const [formData, setFormData] = useState({
@@ -123,6 +132,11 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
         currency: Currency.Dollar,
         conversionRate: 1,
     });
+    const [journalItems, setJournalItems] = useState<JournalItem[]>([
+        { account: '', debit: '', credit: '', description: '' },
+        { account: '', debit: '', credit: '', description: '' },
+    ]);
+    
     const minDate = userProfile?.isAdmin ? '' : new Date().toISOString().split('T')[0];
 
     const accountOptions = useMemo(() => {
@@ -142,6 +156,7 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
                 fromToLabel: 'Paid To',
                 fromToOptions: [
                     { group: 'Suppliers', options: state.suppliers.map(s => ({ id: s.id, name: s.name, type: 'supplier' })) },
+                    { group: 'Vendors', options: state.vendors.map(v => ({ id: v.id, name: v.name, type: 'vendor' })) },
                     { group: 'Commission Agents', options: state.commissionAgents.map(c => ({ id: c.id, name: c.name, type: 'commissionAgent' })) },
                     { group: 'Freight Forwarders', options: state.freightForwarders.map(c => ({ id: c.id, name: c.name, type: 'freightForwarder' })) },
                     { group: 'Clearing Agents', options: state.clearingAgents.map(c => ({ id: c.id, name: c.name, type: 'clearingAgent' })) },
@@ -160,27 +175,113 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
         }
     }, [formData.entryType, state]);
 
+    const allJournalAccounts = useMemo(() => [
+        { label: 'Customers', options: state.customers.map(c => ({ value: `customer-${c.id}`, label: c.name })) },
+        { label: 'Suppliers', options: state.suppliers.map(s => ({ value: `supplier-${s.id}`, label: s.name })) },
+        { label: 'Vendors', options: state.vendors.map(v => ({ value: `vendor-${v.id}`, label: v.name })) },
+        { label: 'Commission Agents', options: state.commissionAgents.map(c => ({ value: `commissionAgent-${c.id}`, label: c.name })) },
+        { label: 'Freight Forwarders', options: state.freightForwarders.map(f => ({ value: `freightForwarder-${f.id}`, label: f.name })) },
+        { label: 'Clearing Agents', options: state.clearingAgents.map(c => ({ value: `clearingAgent-${c.id}`, label: c.name })) },
+        { label: 'Employees', options: state.employees.map(e => ({ value: `employee-${e.id}`, label: e.fullName })) },
+        { label: 'Fixed Assets', options: state.fixedAssets.map(fa => ({ value: `fixedAsset-${fa.id}`, label: fa.name })) },
+        { label: 'Banks', options: state.banks.map(b => ({ value: `account-${b.id}`, label: `${b.accountTitle} (Bank)` })) },
+        { label: 'Cash Accounts', options: state.cashAccounts.map(c => ({ value: `account-${c.id}`, label: c.name })) },
+        { label: 'Loan Accounts', options: state.loanAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })) },
+        { label: 'Capital Accounts', options: state.capitalAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })) },
+        { label: 'Investment Accounts', options: state.investmentAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })) },
+        { label: 'Expense Accounts', options: state.expenseAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })) },
+        { label: 'System Accounts', options: [
+            ...state.receivableAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })),
+            ...state.payableAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })),
+            ...state.revenueAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })),
+            ...state.inventoryAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })),
+            ...state.packingMaterialInventoryAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })),
+            ...state.fixedAssetAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })),
+            ...state.accumulatedDepreciationAccounts.map(a => ({ value: `account-${a.id}`, label: a.name })),
+        ] },
+    ], [state]);
+
+    const { totalDebit, totalCredit, difference } = useMemo(() => {
+        const totals = journalItems.reduce((acc, item) => {
+            acc.debit += Number(item.debit) || 0;
+            acc.credit += Number(item.credit) || 0;
+            return acc;
+        }, { debit: 0, credit: 0 });
+        return { totalDebit: totals.debit, totalCredit: totals.credit, difference: totals.debit - totals.credit };
+    }, [journalItems]);
+
+    const handleJournalItemChange = (index: number, field: keyof JournalItem, value: string) => {
+        const newItems = [...journalItems];
+        newItems[index][field] = value;
+
+        if (field === 'debit' && value !== '') {
+            newItems[index].credit = '';
+        } else if (field === 'credit' && value !== '') {
+            newItems[index].debit = '';
+        }
+        setJournalItems(newItems);
+    };
+    const addJournalItem = () => setJournalItems([...journalItems, { account: '', debit: '', credit: '', description: '' }]);
+    const removeJournalItem = (index: number) => setJournalItems(journalItems.filter((_, i) => i !== index));
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const { date, entryType, fromToAccount, cashBankAccount, amount, description, currency, conversionRate } = formData;
-        const amountNum = Number(amount);
+        
+        if (entryType === JournalEntryType.Journal) {
+            if (Math.abs(difference) > 0.001 || totalDebit === 0) {
+                alert("Journal entry must be balanced (Total Debits must equal Total Credits) and not be zero.");
+                return;
+            }
+            if (!formData.description.trim()) {
+                alert("A general description for the voucher is required.");
+                return;
+            }
 
+            const voucherId = `JV-${String(state.nextJournalVoucherNumber).padStart(3, '0')}`;
+            const batchActions: any[] = [];
+
+            journalItems.forEach((item, index) => {
+                if (!item.account || (Number(item.debit) === 0 && Number(item.credit) === 0)) return;
+
+                const [type, id] = item.account.split('-');
+                const isEntity = type !== 'account';
+
+                const newEntry: JournalEntry = {
+                    id: `je-${voucherId}-${index}`, voucherId, date, entryType,
+                    account: isEntity ? (type === 'customer' ? 'AR-001' : 'AP-001') : id,
+                    debit: Number(item.debit) || 0,
+                    credit: Number(item.credit) || 0,
+                    description: item.description || formData.description,
+                    entityId: isEntity ? id : undefined,
+                    entityType: isEntity ? type as any : undefined,
+                    createdBy: userProfile?.uid,
+                };
+                batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: newEntry } });
+            });
+
+            if(batchActions.length > 0) {
+                dispatch({ type: 'BATCH_UPDATE', payload: batchActions });
+                showNotification(`Journal voucher ${voucherId} created successfully.`);
+                setJournalItems([{ account: '', debit: '', credit: '', description: '' }, { account: '', debit: '', credit: '', description: '' }]);
+                setFormData(prev => ({ ...prev, description: '' }));
+            }
+            return;
+        }
+
+
+        // --- Existing Logic for Receipt, Payment, Expense ---
+        const amountNum = Number(amount);
         if (!fromToAccount || !cashBankAccount || !amount || amountNum <= 0) {
             alert('Please fill all required fields correctly.');
             return;
         }
-
         const amountInDollar = amountNum * conversionRate;
-        
         let voucherId = '';
         let debitEntry: JournalEntry, creditEntry: JournalEntry;
         const fromToAccountData = accountOptions.fromToOptions.flatMap(g => g.options).find(o => o.id === fromToAccount);
 
-        const baseEntry = {
-            date, entryType, description,
-            originalAmount: currency !== Currency.Dollar ? { amount: amountNum, currency } : undefined,
-            createdBy: userProfile?.uid
-        };
+        const baseEntry = { date, entryType, description, originalAmount: currency !== Currency.Dollar ? { amount: amountNum, currency } : undefined, createdBy: userProfile?.uid };
 
         if (entryType === JournalEntryType.Receipt) {
             voucherId = `RV-${String(state.nextReceiptVoucherNumber).padStart(3, '0')}`;
@@ -188,7 +289,8 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
             creditEntry = { ...baseEntry, id: `je-c-${voucherId}`, voucherId, account: 'AR-001', debit: 0, credit: amountInDollar, entityId: fromToAccount, entityType: 'customer' };
         } else if (entryType === JournalEntryType.Payment) {
             voucherId = `PV-${String(state.nextPaymentVoucherNumber).padStart(3, '0')}`;
-            debitEntry = { ...baseEntry, id: `je-d-${voucherId}`, voucherId, account: 'AP-001', debit: amountInDollar, credit: 0, entityId: fromToAccount, entityType: fromToAccountData?.type as any };
+            const entityType = fromToAccountData?.type as 'supplier' | 'vendor' | 'commissionAgent' | 'freightForwarder' | 'clearingAgent' | 'employee' | undefined;
+            debitEntry = { ...baseEntry, id: `je-d-${voucherId}`, voucherId, account: 'AP-001', debit: amountInDollar, credit: 0, entityId: fromToAccount, entityType };
             creditEntry = { ...baseEntry, id: `je-c-${voucherId}`, voucherId, account: cashBankAccount, debit: 0, credit: amountInDollar };
         } else { // Expense
             voucherId = `EV-${String(state.nextExpenseVoucherNumber).padStart(3, '0')}`;
@@ -200,18 +302,11 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
         dispatch({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: creditEntry } });
 
         showNotification(`${entryType} voucher ${voucherId} created successfully.`);
-        setFormData({
-            ...formData,
-            fromToAccount: '',
-            amount: '',
-            description: '',
-            currency: Currency.Dollar,
-            conversionRate: 1,
-        });
+        setFormData({ ...formData, fromToAccount: '', amount: '', description: '', currency: Currency.Dollar, conversionRate: 1, });
     };
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-6 max-w-4xl mx-auto">
+        <form onSubmit={handleSubmit} className="space-y-6 max-w-6xl mx-auto">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div>
                     <label className="block text-sm font-medium text-slate-700">Voucher Type</label>
@@ -219,50 +314,91 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
                         <option value={JournalEntryType.Receipt}>Receipt</option>
                         <option value={JournalEntryType.Payment}>Payment</option>
                         <option value={JournalEntryType.Expense}>Expense</option>
+                        <option value={JournalEntryType.Journal}>JV (Journal Voucher)</option>
                     </select>
                 </div>
                 <div><label className="block text-sm font-medium text-slate-700">Date</label><input type="date" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} min={minDate} required className="mt-1 w-full p-2 rounded-md"/></div>
             </div>
+            
+             {formData.entryType !== JournalEntryType.Journal ? (
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700">{accountOptions.fromToLabel}</label>
+                            <select value={formData.fromToAccount} onChange={e => setFormData({ ...formData, fromToAccount: e.target.value })} required className="mt-1 w-full p-2 rounded-md">
+                                <option value="">Select an account</option>
+                                {accountOptions.fromToOptions.map(group => (
+                                    <optgroup label={group.group} key={group.group}>
+                                        {group.options.map(opt => <option key={opt.id} value={opt.id}>{opt.name}</option>)}
+                                    </optgroup>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700">{accountOptions.cashBankLabel}</label>
+                            <select value={formData.cashBankAccount} onChange={e => setFormData({ ...formData, cashBankAccount: e.target.value })} required className="mt-1 w-full p-2 rounded-md">
+                                <option value="">Select a cash/bank account</option>
+                                {accountOptions.cashBankOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.name}</option>)}
+                            </select>
+                        </div>
+                    </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div>
-                    <label className="block text-sm font-medium text-slate-700">{accountOptions.fromToLabel}</label>
-                    <select value={formData.fromToAccount} onChange={e => setFormData({ ...formData, fromToAccount: e.target.value })} required className="mt-1 w-full p-2 rounded-md">
-                        <option value="">Select an account</option>
-                        {accountOptions.fromToOptions.map(group => (
-                            <optgroup label={group.group} key={group.group}>
-                                {group.options.map(opt => <option key={opt.id} value={opt.id}>{opt.name}</option>)}
-                            </optgroup>
-                        ))}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-700">{accountOptions.cashBankLabel}</label>
-                    <select value={formData.cashBankAccount} onChange={e => setFormData({ ...formData, cashBankAccount: e.target.value })} required className="mt-1 w-full p-2 rounded-md">
-                        <option value="">Select a cash/bank account</option>
-                        {accountOptions.cashBankOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.name}</option>)}
-                    </select>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-sm font-medium text-slate-700">Amount</label>
-                    <input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} required className="mt-1 w-full p-2 rounded-md"/>
-                </div>
-                <div>
-                     <label className="block text-sm font-medium text-slate-700">Currency & Rate</label>
-                     <CurrencyInput value={{ currency: formData.currency, conversionRate: formData.conversionRate }} onChange={v => setFormData(f => ({...f, ...v}))} />
-                </div>
-            </div>
-             <div><label className="block text-sm font-medium text-slate-700">Description</label><input type="text" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} required className="mt-1 w-full p-2 rounded-md"/></div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label className="block text-sm font-medium text-slate-700">Amount</label><input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} required className="mt-1 w-full p-2 rounded-md"/></div>
+                        <div><label className="block text-sm font-medium text-slate-700">Currency & Rate</label><CurrencyInput value={{ currency: formData.currency, conversionRate: formData.conversionRate }} onChange={v => setFormData(f => ({...f, ...v}))} /></div>
+                    </div>
+                    <div><label className="block text-sm font-medium text-slate-700">Description</label><input type="text" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} required className="mt-1 w-full p-2 rounded-md"/></div>
+                </>
+            ) : (
+                <>
+                    <div><label className="block text-sm font-medium text-slate-700">General Description</label><input type="text" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} required className="mt-1 w-full p-2 rounded-md"/></div>
+                    <div className="overflow-x-auto border rounded-md">
+                        <table className="w-full text-left table-auto">
+                             <thead><tr className="bg-slate-100">
+                                <th className="p-2 font-semibold text-slate-600 w-2/5">Account</th>
+                                <th className="p-2 font-semibold text-slate-600">Line Description</th>
+                                <th className="p-2 font-semibold text-slate-600 w-32 text-right">Debit</th>
+                                <th className="p-2 font-semibold text-slate-600 w-32 text-right">Credit</th>
+                                <th className="p-2 w-12"></th>
+                            </tr></thead>
+                            <tbody>
+                                {journalItems.map((item, index) => (
+                                    <tr key={index} className="border-b">
+                                        <td className="p-1"><select value={item.account} onChange={e => handleJournalItemChange(index, 'account', e.target.value)} className="w-full p-2 rounded-md"><option value="">Select Account</option>{allJournalAccounts.map(group => <optgroup key={group.label} label={group.label}>{group.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</optgroup>)}</select></td>
+                                        <td className="p-1"><input type="text" value={item.description} onChange={e => handleJournalItemChange(index, 'description', e.target.value)} className="w-full p-2 rounded-md"/></td>
+                                        <td className="p-1"><input type="number" step="0.01" value={item.debit} onChange={e => handleJournalItemChange(index, 'debit', e.target.value)} className="w-full p-2 rounded-md text-right"/></td>
+                                        <td className="p-1"><input type="number" step="0.01" value={item.credit} onChange={e => handleJournalItemChange(index, 'credit', e.target.value)} className="w-full p-2 rounded-md text-right"/></td>
+                                        <td className="p-1 text-center"><button type="button" onClick={() => removeJournalItem(index)} className="text-red-500 hover:text-red-700 font-bold">✕</button></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot>
+                                <tr className="bg-slate-100 font-semibold">
+                                    <td colSpan={2} className="p-2 text-right">Totals</td>
+                                    <td className="p-2 text-right">{totalDebit.toFixed(2)}</td>
+                                    <td className="p-2 text-right">{totalCredit.toFixed(2)}</td>
+                                    <td></td>
+                                </tr>
+                                {difference !== 0 && (
+                                    <tr className="bg-red-100 font-semibold text-red-700">
+                                        <td colSpan={2} className="p-2 text-right">Difference</td>
+                                        <td colSpan={2} className="p-2 text-center">{difference.toFixed(2)}</td>
+                                        <td></td>
+                                    </tr>
+                                )}
+                            </tfoot>
+                        </table>
+                    </div>
+                     <button type="button" onClick={addJournalItem} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md text-sm">+ Add Line</button>
+                </>
+            )}
 
             <div className="flex justify-end"><button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Create Voucher</button></div>
         </form>
     );
 };
 
-const UpdateVoucherList: React.FC<{}> = () => {
+const UpdateVoucherList: React.FC<{}> = ({}) => {
     const { state } = useData();
     const [filters, setFilters] = useState({ startDate: '2024-01-01', endDate: new Date().toISOString().split('T')[0], type: 'All' });
     const [viewingVoucherId, setViewingVoucherId] = useState<string|null>(null);
@@ -285,7 +421,19 @@ const UpdateVoucherList: React.FC<{}> = () => {
             groups[entry.voucherId].amount += entry.debit;
         });
 
-        return Object.values(groups).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return Object.values(groups).sort((a, b) => {
+            const dateComparison = new Date(b.date).getTime() - new Date(a.date).getTime();
+            if (dateComparison !== 0) {
+                return dateComparison;
+            }
+
+            // If dates are the same, sort by voucher number descending.
+            // Extracts the numeric part, e.g., 'RV-002' -> 2
+            const voucherNumA = parseInt(a.voucherId.split('-').pop() || '0', 10);
+            const voucherNumB = parseInt(b.voucherId.split('-').pop() || '0', 10);
+
+            return voucherNumB - voucherNumA;
+        });
     }, [filters, state.journalEntries]);
     
     return (
@@ -301,16 +449,27 @@ const UpdateVoucherList: React.FC<{}> = () => {
             </ReportFilters>
              <div className="overflow-x-auto">
                 <table className="w-full text-left table-auto">
-                    <thead><tr className="bg-slate-100"><th className="p-3">ID</th><th className="p-3">Date</th><th className="p-3">Type</th><th className="p-3">Description</th><th className="p-3 text-right">Amount</th><th className="p-3 text-right">Actions</th></tr></thead>
+                    <thead>
+                        <tr className="bg-slate-100">
+                            <th className="p-3 font-semibold text-slate-600">ID</th>
+                            <th className="p-3 font-semibold text-slate-600">Date</th>
+                            <th className="p-3 font-semibold text-slate-600">Type</th>
+                            <th className="p-3 font-semibold text-slate-600">Description</th>
+                            <th className="p-3 font-semibold text-slate-600 text-right">Amount</th>
+                            <th className="p-3 font-semibold text-slate-600 text-right">Actions</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         {groupedVouchers.map(v => (
                             <tr key={v.voucherId} className="border-b hover:bg-slate-50">
-                                <td className="p-3 font-mono">{v.voucherId}</td>
-                                <td className="p-3">{v.date}</td>
-                                <td className="p-3">{v.type}</td>
-                                <td className="p-3">{v.description}</td>
-                                <td className="p-3 text-right font-medium">{v.amount.toFixed(2)}</td>
-                                <td className="p-3 text-right"><button onClick={() => setViewingVoucherId(v.voucherId)} className="text-blue-600 hover:underline text-sm">View</button></td>
+                                <td className="p-3 font-mono text-slate-700">{v.voucherId}</td>
+                                <td className="p-3 text-slate-700">{v.date}</td>
+                                <td className="p-3 text-slate-700">{v.type}</td>
+                                <td className="p-3 text-slate-700">{v.description}</td>
+                                <td className="p-3 text-right font-medium text-slate-700">{v.amount.toFixed(2)}</td>
+                                <td className="p-3 text-right">
+                                    <button onClick={() => setViewingVoucherId(v.voucherId)} className="text-blue-600 hover:underline text-sm">View</button>
+                                </td>
                             </tr>
                         ))}
                     </tbody>

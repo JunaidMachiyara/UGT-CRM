@@ -520,7 +520,7 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ entityName, onClose
             const newBalance = parseFloat(String(dataWithId.startingBalance || '0'));
             if (newBalance !== 0 && !isNaN(newBalance)) {
                 const defaultConversionRates: { [key: string]: number } = {
-                    [Currency.AustralianDollar]: 0.66, [Currency.Pound]: 1.34, [Currency.AED]: 0.2725,
+                    [Currency.AustralianDollar]: 0.66, [Currency.Pound]: 1.34, [Currency.AED]: 0.2724795640326975,
                     [Currency.SaudiRiyal]: 0.27, [Currency.Euro]: 1.17, [Currency.Dollar]: 1,
                 };
 
@@ -928,7 +928,7 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
             const defaultConversionRates: { [key: string]: number } = {
                 [Currency.AustralianDollar]: 0.66,
                 [Currency.Pound]: 1.34,
-                [Currency.AED]: 0.2725,
+                [Currency.AED]: 0.2724795640326975,
                 [Currency.SaudiRiyal]: 0.27,
                 [Currency.Euro]: 1.17,
                 [Currency.Dollar]: 1,

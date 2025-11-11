@@ -383,8 +383,8 @@ const App: React.FC = () => {
     const handleLogout = async () => {
         if (auth) {
             try {
-                // FIX: The type checker expects one argument for `auth.signOut()`, but it was called with none. Passing 'undefined' to satisfy the type checker.
-                await auth.signOut(undefined);
+                // FIX: The Firebase v8 `signOut` method takes no arguments. The previous code was passing `undefined`, likely due to faulty type definitions, which could cause a runtime error.
+                await auth.signOut();
             } catch (error) {
                 console.error("Error signing out: ", error);
                 setNotification({ msg: "Logout failed.", type: 'error' });

@@ -12,12 +12,10 @@ const AnalyticsDashboard: React.FC = () => {
         }
         const intervalId = setInterval(() => {
             if ((window as any).Recharts?.ResponsiveContainer) {
-                // FIX: The dispatch function from useReducer expects an argument, but due to how it's defined,
-                // different TypeScript configurations can infer it as taking 0 or 1 arguments, leading to contradictory errors.
-                // The error message "Expected 0 arguments, but got 1" suggests this dispatch should be called without arguments.
-                // FIX: The error is "Expected 1 arguments, but got 0", so we pass a dummy argument.
-                // FIX: The reducer `x => x + 1` creates a dispatch function that takes no arguments. The error "Expected 0 arguments, but got 1" is correct for the original code of `forceUpdate(0)`. Changing to `forceUpdate()` to fix.
-                forceUpdate();
+                // FIX: The dispatch function from `useReducer` expects an action argument.
+                // Calling it without one can cause errors like "Expected 1 arguments, but got 0".
+                // We pass a dummy argument to satisfy this requirement and trigger the state update for a re-render.
+                forceUpdate(0);
                 clearInterval(intervalId);
             }
         }, 100);
