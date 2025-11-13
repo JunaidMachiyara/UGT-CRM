@@ -187,7 +187,8 @@ export async function handler(event: { httpMethod: string; body: string | null }
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            // FIX: Updated to a more powerful model suitable for function calling.
+            model: 'gemini-2.5-pro',
             contents,
             config: {
                 systemInstruction,

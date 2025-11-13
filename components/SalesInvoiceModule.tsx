@@ -186,6 +186,7 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
     
     const [currentItemId, setCurrentItemId] = useState('');
     const [currentQuantity, setCurrentQuantity] = useState<number | ''>('');
+    const [currentPackageRate, setCurrentPackageRate] = useState<number | ''>('');
     const [currentInvoiceItems, setCurrentInvoiceItems] = useState<(Omit<InvoiceItem, 'quantity'> & { quantity: number | '' })[]>([]);
 
 
@@ -296,6 +297,7 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         setDiscountSurcharge('');
         setCurrentItemId('');
         setCurrentQuantity('');
+        setCurrentPackageRate('');
         setCurrentInvoiceItems([]);
         setCompletedInvoice(null);
         setLastInvoiceForCustomer(null);
@@ -316,16 +318,28 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         e.preventDefault();
         if (!currentItemId || !currentQuantity || currentQuantity <= 0) return;
         const itemDetails = state.items.find(i => i.id === currentItemId);
+        if (!itemDetails) {
+            setNotification('Selected item not found.');
+            return;
+        }
+
+        let perKgRate = itemDetails.avgSalesPrice;
+        const packageRateNum = Number(currentPackageRate);
+        if (itemDetails.packingType !== PackingType.Kg && itemDetails.baleSize > 0 && packageRateNum > 0) {
+            perKgRate = packageRateNum / itemDetails.baleSize;
+        }
+
         setCurrentInvoiceItems([...currentInvoiceItems, { 
             itemId: currentItemId, 
             quantity: Number(currentQuantity), 
-            rate: itemDetails?.avgSalesPrice,
+            rate: perKgRate,
             currency: Currency.Dollar,
             conversionRate: 1,
         }]);
         setCurrentItemId('');
         setCurrentQuantity('');
-        setNotification('Data Submitted');
+        setCurrentPackageRate('');
+        setNotification('Item added to invoice.');
         itemRef.current?.focus();
     };
 
@@ -499,34 +513,55 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
         setSubModule('new');
     };
 
-    const renderAddItemForm = () => (
-        <div className="p-4 border rounded-lg bg-slate-50 space-y-4">
-            <h4 className="text-md font-semibold text-slate-700 border-b pb-2">Add Item</h4>
-            <form onSubmit={handleAddItem} className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Item</label>
-                    <ItemSelector
-                        inputRef={itemRef}
-                        items={state.items}
-                        selectedItemId={currentItemId}
-                        onSelect={setCurrentItemId}
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
-                    <input 
-                        type="number" 
-                        value={currentQuantity} 
-                        onChange={e => setCurrentQuantity(e.target.value === '' ? '' : Number(e.target.value))} 
-                        className="w-full p-2 rounded-md"
-                    />
-                </div>
-                <button type="submit" className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 h-10">
-                    Add Item to Invoice
-                </button>
-            </form>
-        </div>
-    );
+    const renderAddItemForm = () => {
+        const itemDetails = state.items.find(i => i.id === currentItemId);
+        const showPackageRate = itemDetails && itemDetails.packingType !== PackingType.Kg && itemDetails.baleSize > 0;
+
+        return (
+            <div className="p-4 border rounded-lg bg-slate-50 space-y-4">
+                <h4 className="text-md font-semibold text-slate-700 border-b pb-2">Add Item</h4>
+                <form onSubmit={handleAddItem} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Item</label>
+                        <ItemSelector
+                            inputRef={itemRef}
+                            items={state.items}
+                            selectedItemId={currentItemId}
+                            onSelect={(id) => {
+                                setCurrentItemId(id);
+                                setCurrentPackageRate('');
+                            }}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
+                        <input 
+                            type="number" 
+                            value={currentQuantity} 
+                            onChange={e => setCurrentQuantity(e.target.value === '' ? '' : Number(e.target.value))} 
+                            className="w-full p-2 rounded-md"
+                        />
+                    </div>
+                    {showPackageRate && (
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Sales Package Rate</label>
+                            <input 
+                                type="number"
+                                step="0.01"
+                                value={currentPackageRate} 
+                                onChange={e => setCurrentPackageRate(e.target.value === '' ? '' : Number(e.target.value))} 
+                                className="w-full p-2 rounded-md"
+                                placeholder={`e.g., Rate for a ${itemDetails.baleSize}kg ${itemDetails.packingType}`}
+                            />
+                        </div>
+                    )}
+                    <button type="submit" className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 h-10">
+                        Add Item to Invoice
+                    </button>
+                </form>
+            </div>
+        );
+    };
     
     const renderInvoiceBody = () => (
         <>

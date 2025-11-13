@@ -1113,7 +1113,7 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
                     
                     const totalValue = totalWeight * itemData.avgProductionPrice;
 
-                    if (totalValue > 0) {
+                    if (totalValue !== 0) {
                         const voucherId = `JV-${String(state.nextJournalVoucherNumber).padStart(3, '0')}`;
                         const date = new Date().toISOString().split('T')[0];
                         const description = `Opening Stock for ${itemData.name} (${itemData.id})`;
@@ -1121,13 +1121,17 @@ const CrudManager = <T extends Entity & { id: string, name?: string, fullName?: 
                         const debitEntry: JournalEntry = {
                             id: `je-d-os-${itemData.id}`, voucherId, date, entryType: JournalEntryType.Journal,
                             account: 'INV-FG-001',
-                            debit: totalValue, credit: 0, description
+                            debit: totalValue > 0 ? totalValue : 0, 
+                            credit: totalValue < 0 ? -totalValue : 0, 
+                            description
                         };
 
                         const creditEntry: JournalEntry = {
                             id: `je-c-os-${itemData.id}`, voucherId, date, entryType: JournalEntryType.Journal,
                             account: 'CAP-002',
-                            debit: 0, credit: totalValue, description
+                            debit: totalValue < 0 ? -totalValue : 0, 
+                            credit: totalValue > 0 ? totalValue : 0, 
+                            description
                         };
 
                         dispatch({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: debitEntry } });
