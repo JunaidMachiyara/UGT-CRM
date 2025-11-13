@@ -4,6 +4,7 @@ import ReportFilters from './ReportFilters.tsx';
 import ReportToolbar from './ReportToolbar.tsx';
 import { JournalEntry, InvoiceItem, AppState, Currency, PackingType, SalesInvoice } from '../../types.ts';
 import Modal from '../ui/Modal.tsx';
+import EntitySelector from '../ui/EntitySelector.tsx';
 
 const SalesInvoiceViewModal: React.FC<{ invoiceId: string; onClose: () => void; state: AppState }> = ({ invoiceId, onClose, state }) => {
     const invoice = state.salesInvoices.find(inv => inv.id === invoiceId);
@@ -196,10 +197,14 @@ const VoucherViewModal: React.FC<{ voucherId: string; onClose: () => void; state
 };
 
 
-type AccountType = 'All' | 'Customer' | 'Supplier' | 'Commission Agent' | 'Freight Forwarder' | 'Clearing Agent' | 'Employee' | 'Bank' | 'Cash' | 'Loan' | 'Capital' | 'Investment' | 'Expense' | 'Receivable' | 'Payable' | 'Revenue';
+type AccountType = 'All' | 'Customer' | 'Supplier' | 'Vendor' | 'Commission Agent' | 'Freight Forwarder' | 'Clearing Agent' | 'Employee' | 'Bank' | 'Cash' | 'Loan' | 'Capital' | 'Investment' | 'Expense' | 'Receivable' | 'Payable' | 'Revenue' | 'Inventory' | 'Fixed Asset' | 'Accumulated Depreciation';
 type DisplayCurrency = 'USD' | 'FCY'; // FCY = Foreign Currency
 
-const LedgerReport: React.FC = () => {
+interface LedgerReportProps {
+    initialFilters?: any;
+}
+
+const LedgerReport: React.FC<LedgerReportProps> = ({ initialFilters }) => {
     const { state } = useData();
     const today = new Date().toISOString().split('T')[0];
     
@@ -212,14 +217,55 @@ const LedgerReport: React.FC = () => {
     const [viewingDocumentId, setViewingDocumentId] = useState<string | null>(null);
     const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('USD');
 
+    useEffect(() => {
+        if (initialFilters) {
+            setFilters(prev => ({ ...prev, ...initialFilters }));
+        }
+    }, [initialFilters]);
+
     const handleFilterChange = (filterName: string, value: any) => {
         setFilters(prev => ({ ...prev, [filterName]: value, ...(filterName === 'accountType' && { accountId: '' }) }));
     };
+
+    const allAccountGroups = useMemo(() => {
+        return [
+            { label: 'Customers', type: 'Customer' as AccountType, list: state.customers },
+            { label: 'Suppliers', type: 'Supplier' as AccountType, list: state.suppliers },
+            { label: 'Vendors', type: 'Vendor' as AccountType, list: state.vendors },
+            { label: 'Commission Agents', type: 'Commission Agent' as AccountType, list: state.commissionAgents },
+            { label: 'Freight Forwarders', type: 'Freight Forwarder' as AccountType, list: state.freightForwarders },
+            { label: 'Clearing Agents', type: 'Clearing Agent' as AccountType, list: state.clearingAgents },
+            { label: 'Employees', type: 'Employee' as AccountType, list: state.employees.map(e => ({ id: e.id, name: e.fullName })) },
+            { label: 'Banks', type: 'Bank' as AccountType, list: state.banks.map(b => ({ id: b.id, name: b.accountTitle })) },
+            { label: 'Cash Accounts', type: 'Cash' as AccountType, list: state.cashAccounts },
+            { label: 'Loan Accounts', type: 'Loan' as AccountType, list: state.loanAccounts },
+            { label: 'Capital Accounts', type: 'Capital' as AccountType, list: state.capitalAccounts },
+            { label: 'Investment Accounts', type: 'Investment' as AccountType, list: state.investmentAccounts },
+            { label: 'Expense Accounts', type: 'Expense' as AccountType, list: state.expenseAccounts },
+            { label: 'Receivable Accounts', type: 'Receivable' as AccountType, list: state.receivableAccounts },
+            { label: 'Payable Accounts', type: 'Payable' as AccountType, list: state.payableAccounts },
+            { label: 'Revenue Accounts', type: 'Revenue' as AccountType, list: state.revenueAccounts },
+            { label: 'Inventory Accounts', type: 'Inventory' as AccountType, list: state.inventoryAccounts },
+            { label: 'Fixed Asset Accounts', type: 'Fixed Asset' as AccountType, list: state.fixedAssetAccounts },
+            { label: 'Accumulated Depreciation Accounts', type: 'Accumulated Depreciation' as AccountType, list: state.accumulatedDepreciationAccounts },
+        ].filter(group => group.list && group.list.length > 0);
+    }, [state]);
+
+    const entityGroupsForSelector = useMemo(() => {
+        return allAccountGroups.map(group => ({
+            label: group.label,
+            entities: group.list.map(acc => ({
+                id: `${group.type}__${acc.id}`,
+                name: ('name' in acc ? acc.name : (acc as any).accountTitle) || acc.id
+            }))
+        }));
+    }, [allAccountGroups]);
     
     const accountOptions = useMemo(() => {
         switch (filters.accountType) {
             case 'Customer': return state.customers;
             case 'Supplier': return state.suppliers;
+            case 'Vendor': return state.vendors;
             case 'Commission Agent': return state.commissionAgents;
             case 'Freight Forwarder': return state.freightForwarders;
             case 'Clearing Agent': return state.clearingAgents;
@@ -233,9 +279,19 @@ const LedgerReport: React.FC = () => {
             case 'Receivable': return state.receivableAccounts;
             case 'Payable': return state.payableAccounts;
             case 'Revenue': return state.revenueAccounts;
+            case 'Inventory': return state.inventoryAccounts;
+            case 'Fixed Asset': return state.fixedAssetAccounts;
+            case 'Accumulated Depreciation': return state.accumulatedDepreciationAccounts;
             default: return [];
         }
     }, [filters.accountType, state]);
+
+    const accountEntitiesForSelector = useMemo(() => {
+        return accountOptions.map(acc => ({
+            id: acc.id,
+            name: ('name' in acc ? acc.name : (acc as any).accountTitle) || acc.id
+        }));
+    }, [accountOptions]);
 
     const accountCurrencyInfo = useMemo(() => {
         if (!filters.accountId) return null;
@@ -305,6 +361,8 @@ const LedgerReport: React.FC = () => {
                 return calculateSummary(state.customers, true, state.receivableAccounts[0]?.id);
             case 'Supplier':
                 return calculateSummary(state.suppliers, true, payableAccountId);
+            case 'Vendor':
+                return calculateSummary(state.vendors, true, payableAccountId);
             case 'Commission Agent':
                 return calculateSummary(state.commissionAgents, true, payableAccountId);
             case 'Freight Forwarder':
@@ -345,6 +403,7 @@ const LedgerReport: React.FC = () => {
         const entityAccountGroups: { type: AccountType, accountId: string, list: { id: string, name: string }[] }[] = [
             { type: 'Customer', accountId: state.receivableAccounts[0]?.id, list: state.customers },
             { type: 'Supplier', accountId: state.payableAccounts[0]?.id, list: state.suppliers },
+            { type: 'Vendor', accountId: state.payableAccounts[0]?.id, list: state.vendors },
             { type: 'Commission Agent', accountId: state.payableAccounts[0]?.id, list: state.commissionAgents },
             { type: 'Freight Forwarder', accountId: state.payableAccounts[0]?.id, list: state.freightForwarders },
             { type: 'Clearing Agent', accountId: state.payableAccounts[0]?.id, list: state.clearingAgents },
@@ -392,12 +451,19 @@ const LedgerReport: React.FC = () => {
         }
 
         let relevantEntries: JournalEntry[] = [];
-        const isEntityLedger = ['Customer', 'Supplier', 'Commission Agent', 'Freight Forwarder', 'Clearing Agent', 'Employee'].includes(filters.accountType);
+        const isEntityLedger = ['Customer', 'Supplier', 'Vendor', 'Commission Agent', 'Freight Forwarder', 'Clearing Agent', 'Employee', 'Payable'].includes(filters.accountType);
         
         if (isEntityLedger) {
-            const generalAccount = filters.accountType === 'Customer' ? state.receivableAccounts[0]?.id : state.payableAccounts[0]?.id;
+            let generalAccount;
+            if (filters.accountType === 'Customer') generalAccount = state.receivableAccounts[0]?.id;
+            else if (filters.accountType === 'Payable') generalAccount = filters.accountId;
+            else generalAccount = state.payableAccounts[0]?.id;
+
             if (generalAccount) {
-                 relevantEntries = state.journalEntries.filter(je => je.account === generalAccount && je.entityId === filters.accountId);
+                 relevantEntries = state.journalEntries.filter(je => 
+                    (filters.accountType === 'Payable' && je.account === generalAccount) ||
+                    (je.account === generalAccount && je.entityId === filters.accountId)
+                 );
             }
         } else {
             relevantEntries = state.journalEntries.filter(je => je.account === filters.accountId);
@@ -487,9 +553,9 @@ const LedgerReport: React.FC = () => {
                         <tr key={t.id} className="border-b hover:bg-slate-50">
                             <td className="p-2 text-slate-800">{t.date}</td>
                             <td className="p-2 text-slate-800">
-                                <a href="#" onClick={(e) => { e.preventDefault(); setViewingDocumentId(t.voucherId); }} className="text-blue-600 hover:underline font-mono">
+                                <button onClick={(e) => { e.preventDefault(); setViewingDocumentId(t.voucherId); }} className="text-blue-600 hover:underline font-mono">
                                     {t.voucherId}
-                                </a>
+                                </button>
                             </td>
                             <td className="p-2 text-slate-800">{t.description}</td>
                             <td className="p-2 text-slate-800 text-right">{t.debit > 0 ? t.debit.toFixed(2) : '-'}</td>
@@ -594,6 +660,7 @@ const LedgerReport: React.FC = () => {
                             <option>All</option>
                             <option>Customer</option>
                             <option>Supplier</option>
+                            <option>Vendor</option>
                             <option>Commission Agent</option>
                             <option>Freight Forwarder</option>
                             <option>Clearing Agent</option>
@@ -609,12 +676,32 @@ const LedgerReport: React.FC = () => {
                             <option>Revenue</option>
                         </select>
                     </div>
-                    <div>
+                    <div className="flex-grow min-w-[250px]">
                         <label className="block text-sm font-medium text-slate-700 mb-1">Account</label>
-                        <select value={filters.accountId} onChange={e => handleFilterChange('accountId', e.target.value)} className="w-full p-2 border border-slate-300 rounded-md text-sm" disabled={!filters.accountType || filters.accountType === 'All'}>
-                            <option value="">{`All ${filters.accountType}s (Summary)`}</option>
-                            {accountOptions.map(acc => <option key={acc.id} value={acc.id}>{('name' in acc ? acc.name : (acc as any).accountTitle) || acc.id}</option>)}
-                        </select>
+                        {filters.accountType === 'All' ? (
+                            <EntitySelector
+                                entityGroups={entityGroupsForSelector}
+                                selectedEntityId={filters.accountId ? `${filters.accountType}__${filters.accountId}` : ''}
+                                onSelect={(value) => {
+                                    if (!value) {
+                                        handleFilterChange('accountId', '');
+                                        handleFilterChange('accountType', 'All');
+                                    } else {
+                                        const [type, id] = value.split('__');
+                                        setFilters(prev => ({ ...prev, accountType: type as AccountType, accountId: id }));
+                                    }
+                                }}
+                                placeholder="Search or select an account..."
+                            />
+                        ) : (
+                            <EntitySelector
+                                entities={accountEntitiesForSelector}
+                                selectedEntityId={filters.accountId}
+                                onSelect={(id) => handleFilterChange('accountId', id)}
+                                placeholder={filters.accountId ? `Search in ${filters.accountType}s...` : `All ${filters.accountType}s (Summary)`}
+                                disabled={!filters.accountType}
+                            />
+                        )}
                     </div>
                 </ReportFilters>
                 {accountCurrencyInfo && (

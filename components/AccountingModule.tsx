@@ -120,7 +120,12 @@ const VoucherViewModal: React.FC<{ voucherId: string; onClose: () => void; state
 
 type JournalItem = { account: string; debit: string; credit: string; description: string };
 
-const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotification: (msg: string) => void }> = ({ userProfile, showNotification }) => {
+interface NewVoucherFormProps {
+    userProfile: UserProfile | null;
+    showNotification: (msg: string) => void;
+}
+
+const NewVoucherForm: React.FC<NewVoucherFormProps> = ({ userProfile, showNotification }) => {
     const { state, dispatch } = useData();
     const [formData, setFormData] = useState({
         date: new Date().toISOString().split('T')[0],
@@ -140,8 +145,7 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
     const minDate = userProfile?.isAdmin ? '' : new Date().toISOString().split('T')[0];
 
     const accountOptions = useMemo(() => {
-        const { entryType } = formData;
-        if (entryType === JournalEntryType.Receipt) {
+        if (formData.entryType === JournalEntryType.Receipt) {
             return {
                 fromToLabel: 'Received From',
                 fromToOptions: [
@@ -151,7 +155,7 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
                 cashBankLabel: 'To Account',
                 cashBankOptions: [ ...state.cashAccounts, ...state.banks.map(b => ({ id: b.id, name: b.accountTitle })) ],
             };
-        } else if (entryType === JournalEntryType.Payment) {
+        } else if (formData.entryType === JournalEntryType.Payment) {
             return {
                 fromToLabel: 'Paid To',
                 fromToOptions: [
@@ -244,7 +248,9 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
             journalItems.forEach((item, index) => {
                 if (!item.account || (Number(item.debit) === 0 && Number(item.credit) === 0)) return;
 
-                const [type, id] = item.account.split('-');
+                const accountParts = item.account.split('-');
+                const type = accountParts[0];
+                const id = accountParts.slice(1).join('-');
                 const isEntity = type !== 'account';
 
                 const newEntry: JournalEntry = {
@@ -398,7 +404,7 @@ const NewVoucherForm: React.FC<{ userProfile: UserProfile | null; showNotificati
     );
 };
 
-const UpdateVoucherList: React.FC<{}> = ({}) => {
+const UpdateVoucherList: React.FC<{ userProfile: UserProfile | null; }> = ({ userProfile }) => {
     const { state } = useData();
     const [filters, setFilters] = useState({ startDate: '2024-01-01', endDate: new Date().toISOString().split('T')[0], type: 'All' });
     const [viewingVoucherId, setViewingVoucherId] = useState<string|null>(null);
@@ -427,8 +433,6 @@ const UpdateVoucherList: React.FC<{}> = ({}) => {
                 return dateComparison;
             }
 
-            // If dates are the same, sort by voucher number descending.
-            // Extracts the numeric part, e.g., 'RV-002' -> 2
             const voucherNumA = parseInt(a.voucherId.split('-').pop() || '0', 10);
             const voucherNumB = parseInt(b.voucherId.split('-').pop() || '0', 10);
 
@@ -460,18 +464,21 @@ const UpdateVoucherList: React.FC<{}> = ({}) => {
                         </tr>
                     </thead>
                     <tbody>
-                        {groupedVouchers.map(v => (
-                            <tr key={v.voucherId} className="border-b hover:bg-slate-50">
-                                <td className="p-3 font-mono text-slate-700">{v.voucherId}</td>
-                                <td className="p-3 text-slate-700">{v.date}</td>
-                                <td className="p-3 text-slate-700">{v.type}</td>
-                                <td className="p-3 text-slate-700">{v.description}</td>
-                                <td className="p-3 text-right font-medium text-slate-700">{v.amount.toFixed(2)}</td>
-                                <td className="p-3 text-right">
-                                    <button onClick={() => setViewingVoucherId(v.voucherId)} className="text-blue-600 hover:underline text-sm">View</button>
-                                </td>
-                            </tr>
-                        ))}
+                        {groupedVouchers.map(v => {
+                            const isReversed = v.entries.some(e => String(e.description || '').startsWith('[REVERSED]'));
+                            return (
+                                <tr key={v.voucherId} className={`border-b hover:bg-slate-50 ${isReversed ? 'bg-red-50 text-slate-500 line-through' : ''}`}>
+                                    <td className="p-3 font-mono text-slate-700">{v.voucherId}</td>
+                                    <td className="p-3 text-slate-700">{v.date}</td>
+                                    <td className="p-3 text-slate-700">{v.type}</td>
+                                    <td className="p-3 text-slate-700">{v.description}</td>
+                                    <td className="p-3 text-right font-medium text-slate-700">{v.amount.toFixed(2)}</td>
+                                    <td className="p-3 text-right space-x-2">
+                                        <button onClick={() => setViewingVoucherId(v.voucherId)} className="text-gray-600 hover:text-gray-800 text-sm font-semibold">View</button>
+                                    </td>
+                                </tr>
+                            )
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -507,7 +514,7 @@ const AccountingModule: React.FC<{ userProfile: UserProfile | null; initialView?
             </div>
             <div className="bg-white p-6 rounded-lg shadow-md">
                 {subModule === 'new' && <NewVoucherForm userProfile={userProfile} showNotification={showNotification} />}
-                {subModule === 'update' && <UpdateVoucherList />}
+                {subModule === 'update' && <UpdateVoucherList userProfile={userProfile} />}
                 {subModule === 'packing' && <PackingMaterialModule userProfile={userProfile} showNotification={showNotification} />}
                 {subModule === 'fixedAssets' && <FixedAssetsModule userProfile={userProfile} showNotification={showNotification} />}
             </div>

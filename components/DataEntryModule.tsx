@@ -9,6 +9,7 @@ import ItemSelector from './ui/ItemSelector.tsx';
 import Modal from './ui/Modal.tsx';
 import StockLotModule from './StockLotModule.tsx';
 import CurrencyInput from './ui/CurrencyInput.tsx';
+import EntitySelector from './ui/EntitySelector.tsx';
 
 const Notification: React.FC<{ message: string; onTimeout: () => void }> = ({ message, onTimeout }) => {
     useEffect(() => {
@@ -337,7 +338,15 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
                  <h3 className="text-lg font-bold text-slate-700 mb-4">New Opening Entry</h3>
                  <form onSubmit={handleSubmit} className="space-y-4">
                     <div><label className="block text-sm font-medium text-slate-700">Date</label><input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} min={minDate} className="mt-1 w-full p-2 rounded-md"/></div>
-                    <div><label className="block text-sm font-medium text-slate-700">Supplier</label><select ref={supplierRef} value={formData.supplierId} onChange={e => setFormData({...formData, supplierId: e.target.value})} className="mt-1 w-full p-2 rounded-md"><option value="">Select Supplier</option>{availableSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700">Supplier</label>
+                        <EntitySelector
+                            entities={availableSuppliers}
+                            selectedEntityId={formData.supplierId}
+                            onSelect={(id) => setFormData(prev => ({ ...prev, supplierId: id }))}
+                            placeholder="Search Suppliers..."
+                        />
+                    </div>
                     <div><label className="block text-sm font-medium text-slate-700">Sub-Supplier</label><select value={formData.subSupplierId} onChange={e => setFormData({...formData, subSupplierId: e.target.value})} disabled={!formData.supplierId || availableSubSuppliers.length === 0} className="mt-1 w-full p-2 rounded-md"><option value="">None / Direct</option>{availableSubSuppliers.map(ot => <option key={ot.id} value={ot.id}>{ot.name}</option>)}</select></div>
                     <div><label className="block text-sm font-medium text-slate-700">Original Type</label><select value={formData.originalTypeId} onChange={e => setFormData({...formData, originalTypeId: e.target.value})} className="mt-1 w-full p-2 rounded-md" disabled={!formData.supplierId}><option value="">Select Type</option>{availableOriginalTypes.map(ot => <option key={ot.id} value={ot.id}>{ot.name}</option>)}</select></div>
                     <div><label className="block text-sm font-medium text-slate-700">Original Product</label><select value={formData.originalProductId} onChange={e => setFormData({...formData, originalProductId: e.target.value})} className="mt-1 w-full p-2 rounded-md" disabled={!formData.originalTypeId || availableOriginalProducts.length === 0}><option value="">None / Not Applicable</option>{availableOriginalProducts.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}</select></div>
@@ -1141,20 +1150,24 @@ const DirectSalesForm: React.FC<{ showNotification: (msg: string) => void; userP
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-slate-700">Customer</label>
-                        <select value={customerId} onChange={e => setCustomerId(e.target.value)} required className="mt-1 w-full p-2 rounded-md">
-                            <option value="">Select Customer</option>
-                            {state.customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+                        <EntitySelector
+                            entities={state.customers}
+                            selectedEntityId={customerId}
+                            onSelect={setCustomerId}
+                            placeholder="Search Customers..."
+                        />
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium text-slate-700">Supplier</label>
-                        <select value={supplierId} onChange={e => {setSupplierId(e.target.value); setBatchNumber('');}} required className="mt-1 w-full p-2 rounded-md">
-                            <option value="">Select Supplier</option>
-                            {suppliersWithStock.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
+                        <EntitySelector
+                            entities={suppliersWithStock}
+                            selectedEntityId={supplierId}
+                            onSelect={(id) => {setSupplierId(id); setBatchNumber('');}}
+                            placeholder="Search Suppliers..."
+                        />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700">Batch Number</label>

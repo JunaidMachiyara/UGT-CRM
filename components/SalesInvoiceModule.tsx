@@ -5,6 +5,7 @@ import { InvoiceItem, SalesInvoice, InvoiceStatus, PackingType, Module, UserProf
 import Modal from './ui/Modal.tsx';
 import ItemSelector from './ui/ItemSelector.tsx';
 import CurrencyInput from './ui/CurrencyInput.tsx';
+import EntitySelector from './ui/EntitySelector.tsx';
 
 interface SalesInvoiceProps {
     setModule: (module: Module) => void;
@@ -702,10 +703,14 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end p-4 border rounded-md bg-white">
                         <div className="md:col-span-1">
                             <label className="block text-sm font-medium text-slate-700">Customer</label>
-                            <select ref={customerRef} value={customerId} onChange={e => setCustomerId(e.target.value)} disabled={!!editingInvoice} className="mt-1 w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-200">
-                                <option value="">Select Customer</option>
-                                {state.customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
+                            <EntitySelector
+                                entities={state.customers}
+                                selectedEntityId={customerId}
+                                onSelect={setCustomerId}
+                                placeholder="Search Customers..."
+                                disabled={!!editingInvoice}
+                                inputRef={customerRef as any}
+                            />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700">Logo</label>

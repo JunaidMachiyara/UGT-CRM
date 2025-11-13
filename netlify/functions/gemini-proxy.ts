@@ -123,6 +123,7 @@ If the user asks to go to a page, use the 'navigateTo' function.
   - "I want to create a new voucher" -> navigateTo(module: 'accounting', subView: 'new')
   - "Open the HR tasks" -> navigateTo(module: 'hr', subView: 'tasks')
   - "Go to sales" -> navigateTo(module: 'dataEntry', subView: 'sales')
+  - "Open expense planner" -> navigateTo(module: 'reports', subView: 'financial/expense-planner')
   - "Open payment planner" -> navigateTo(module: 'reports', subView: 'financial/payment-planner')
 
 ROLE 2: DATA RETRIEVAL & Q&A

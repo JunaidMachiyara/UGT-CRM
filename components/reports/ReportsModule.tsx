@@ -1,30 +1,31 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import ItemPerformanceReport from './reports/ItemPerformanceReport.tsx';
-import LedgerReport from './reports/LedgerReport.tsx';
-import CashAndBankReport from './reports/CashAndBankReport.tsx';
-import NonMovingItemsReport from './reports/NonMovingItemsReport.tsx';
-import StockAlertsReport from './reports/StockAlertsReport.tsx';
-import ProductionAnalysisReport from './reports/ProductionAnalysisReport.tsx';
-import ItemSummaryReport from './reports/ItemSummaryReport.tsx';
-import SalesInvoiceReport from './reports/SalesInvoiceReport.tsx';
-import PurchaseInvoiceReport from './reports/PurchaseInvoiceReport.tsx';
-import DetailedSalesReport from './reports/DetailedSalesReport.tsx';
-import DetailedPurchaseReport from './reports/DetailedPurchaseReport.tsx';
-import OriginalCombinationReport from './reports/OriginalCombinationReport.tsx';
-import DailyProductionReport from './reports/DailyProductionReport.tsx';
-import BalanceSheet from './reports/BalanceSheet.tsx';
-import ProfitAndLossReport from './reports/ProfitAndLossReport.tsx';
-import OriginalStockReport from './reports/OriginalStockReport.tsx';
-import { UserProfile } from '../types.ts';
-import OrderFulfillmentDashboard from "./reports/OrderFulfillmentDashboard.tsx";
-import SectionProductionReport from './reports/SectionProductionReport.tsx';
-import FeasibilityReport from "./reports/FeasibilityReport.tsx";
-import RebalingReport from "./reports/RebalingReport.tsx";
-import PaymentPlannerReport from './reports/PaymentPlannerReport.tsx';
-import StockWorthReport from './reports/StockWorthReport.tsx';
-import ExpensePlannerReport from './reports/ExpensePlannerReport.tsx';
+import ItemPerformanceReport from './ItemPerformanceReport.tsx';
+import LedgerReport from './LedgerReport.tsx';
+import CashAndBankReport from './CashAndBankReport.tsx';
+import NonMovingItemsReport from './NonMovingItemsReport.tsx';
+import StockAlertsReport from './StockAlertsReport.tsx';
+import ProductionAnalysisReport from './ProductionAnalysisReport.tsx';
+import ItemSummaryReport from './ItemSummaryReport.tsx';
+import SalesInvoiceReport from './SalesInvoiceReport.tsx';
+import PurchaseInvoiceReport from './PurchaseInvoiceReport.tsx';
+import DetailedSalesReport from './DetailedSalesReport.tsx';
+import DetailedPurchaseReport from './DetailedPurchaseReport.tsx';
+import OriginalCombinationReport from './OriginalCombinationReport.tsx';
+import DailyProductionReport from './DailyProductionReport.tsx';
+import BalanceSheet from './BalanceSheet.tsx';
+import ProfitAndLossReport from './ProfitAndLossReport.tsx';
+import OriginalStockReport from './OriginalStockReport.tsx';
+import { UserProfile } from '../../types.ts';
+import OrderFulfillmentDashboard from "./OrderFulfillmentDashboard.tsx";
+import SectionProductionReport from './SectionProductionReport.tsx';
+import FeasibilityReport from "./FeasibilityReport.tsx";
+import RebalingReport from "./RebalingReport.tsx";
+import PaymentPlannerReport from './PaymentPlannerReport.tsx';
+import StockWorthReport from './StockWorthReport.tsx';
+import ExpensePlannerReport from './ExpensePlannerReport.tsx';
 
 type ReportCategoryKey = 'item-performance' | 'original-stock-v1' | 'ledger' | 'cash-bank' | 'invoices' | 'detailed-reports' | 'production' | 'financial' | 'fulfillment';
+// FIX: Export the ReportKey type so it can be imported by other components.
 export type ReportKey = 
     | 'item-performance/summary'
     | 'item-performance/stock-worth'

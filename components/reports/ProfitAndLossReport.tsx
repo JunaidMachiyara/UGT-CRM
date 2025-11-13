@@ -1,9 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../../context/DataContext.tsx';
 import ReportToolbar from './ReportToolbar.tsx';
 import ReportFilters from './ReportFilters.tsx';
 
-const ProfitAndLossReport: React.FC = () => {
+interface ProfitAndLossReportProps {
+    initialFilters?: any;
+}
+
+const ProfitAndLossReport: React.FC<ProfitAndLossReportProps> = ({ initialFilters }) => {
     const { state } = useData();
     const today = new Date().toISOString().split('T')[0];
     const firstDayOfYear = new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0];
@@ -12,6 +16,12 @@ const ProfitAndLossReport: React.FC = () => {
         startDate: firstDayOfYear,
         endDate: today,
     });
+
+    useEffect(() => {
+        if (initialFilters) {
+            setFilters(prev => ({ ...prev, ...initialFilters }));
+        }
+    }, [initialFilters]);
 
     const handleFilterChange = (filterName: string, value: any) => {
         setFilters(prev => ({ ...prev, [filterName]: value }));

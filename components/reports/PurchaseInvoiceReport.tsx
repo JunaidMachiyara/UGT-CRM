@@ -26,8 +26,7 @@ const PurchaseInvoiceViewModal: React.FC<{ purchaseId: string, onClose: () => vo
     if (purchaseType === 'Original') {
         const p = purchase as OriginalPurchased;
         const totalForeign = p.quantityPurchased * p.rate;
-        // The original logic incorrectly divided for some currencies. The conversion rate
-        // is consistently stored as (USD per 1 unit of FCY), so multiplication is always correct.
+        // FIX: The conversion rate is consistently stored as (USD per 1 unit of FCY), so multiplication is always correct.
         totalValue = totalForeign * p.conversionRate;
 
     } else {

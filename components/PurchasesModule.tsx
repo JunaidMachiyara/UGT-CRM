@@ -8,6 +8,7 @@ import { generateFinishedGoodsPurchaseId } from '../utils/idGenerator.ts';
 import ItemSelector from './ui/ItemSelector.tsx';
 import CurrencyInput from './ui/CurrencyInput.tsx';
 import Modal from './ui/Modal.tsx';
+import EntitySelector from './ui/EntitySelector.tsx';
 
 // --- Reusable Helper Components ---
 const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; defaultOpen?: boolean }> = ({ title, children, defaultOpen = false }) => {
@@ -258,10 +259,12 @@ const OriginalPurchaseFormInternal: React.FC<Omit<PurchasesModuleProps, 'selecte
                         <div><label className="block text-sm font-medium text-slate-700">Date</label><input type="date" name="date" value={formData.date} onChange={handleChange} required className={`${inputClasses}`}/></div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700">Supplier</label>
-                            <select name="supplierId" value={formData.supplierId} onChange={handleChange} required className={`${inputClasses}`}>
-                                <option value="">Select Supplier</option>
-                                {state.suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                            </select>
+                            <EntitySelector
+                                entities={state.suppliers}
+                                selectedEntityId={formData.supplierId || ''}
+                                onSelect={(id) => handleChange({ target: { name: 'supplierId', value: id } } as any)}
+                                placeholder="Search Suppliers..."
+                            />
                         </div>
                          <div>
                             <label className="block text-sm font-medium text-slate-700">Sub-Supplier</label>

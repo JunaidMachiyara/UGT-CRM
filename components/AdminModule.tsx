@@ -1,8 +1,352 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useData, auth, db, allPermissions, dataEntrySubModules, mainModules } from '../context/DataContext.tsx';
-import { Module, UserProfile, AppState, PackingType, Production, JournalEntry } from '../types.ts';
+import { Module, UserProfile, AppState, PackingType, Production, JournalEntry, SalesInvoice, InvoiceItem, Currency } from '../types.ts';
 import { reportStructure } from './ReportsModule.tsx';
 import Modal from './ui/Modal.tsx';
+
+const UserManager: React.FC<{ setNotification: (n: any) => void; }> = ({ setNotification }) => {
+    const [users, setUsers] = useState<UserProfile[]>([]);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingUser, setEditingUser] = useState<Partial<UserProfile> & { password?: string } | null>(null);
+
+    useEffect(() => {
+        if (!db) return;
+        const unsubscribe = db.collection('users').onSnapshot((snapshot: any) => {
+            const userList: UserProfile[] = [];
+            snapshot.forEach((doc: any) => {
+                userList.push({ ...doc.data(), uid: doc.id });
+            });
+            setUsers(userList);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    const handleOpenModal = (user: UserProfile | null = null) => {
+        if (user) {
+            setEditingUser({ ...user, password: '' });
+        } else {
+            setEditingUser({ name: '', email: '', password: '', isAdmin: false, permissions: [] });
+        }
+        setIsModalOpen(true);
+    };
+
+    const handleSaveUser = async () => {
+        if (!editingUser || !editingUser.email || !editingUser.name) {
+            setNotification({ msg: 'Name and email are required.', type: 'error' });
+            return;
+        }
+
+        try {
+            if (editingUser.uid) { // Editing existing user
+                await db.collection('users').doc(editingUser.uid).update({
+                    name: editingUser.name,
+                    isAdmin: editingUser.isAdmin,
+                    permissions: editingUser.isAdmin ? allPermissions : editingUser.permissions,
+                });
+                setNotification({ msg: 'User updated successfully.', type: 'success' });
+            } else { // Creating new user
+                if (!editingUser.password || editingUser.password.length < 6) {
+                    setNotification({ msg: 'Password must be at least 6 characters.', type: 'error' });
+                    return;
+                }
+                const userCredential = await auth.createUserWithEmailAndPassword(editingUser.email, editingUser.password);
+                const newUser = userCredential.user;
+                if (newUser) {
+                    await db.collection('users').doc(newUser.uid).set({
+                        name: editingUser.name,
+                        email: editingUser.email,
+                        isAdmin: editingUser.isAdmin,
+                        permissions: editingUser.isAdmin ? allPermissions : editingUser.permissions,
+                    });
+                    setNotification({ msg: 'User created successfully.', type: 'success' });
+                }
+            }
+            setIsModalOpen(false);
+        } catch (error: any) {
+            setNotification({ msg: `Error: ${error.message}`, type: 'error' });
+        }
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold text-slate-700">User Management</h2>
+                <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md">Add New User</button>
+            </div>
+            <div className="overflow-x-auto">
+                <table className="w-full text-left table-auto">
+                    <thead><tr className="bg-slate-100"><th className="p-2">Name</th><th className="p-2">Email</th><th className="p-2">Role</th><th className="p-2">Actions</th></tr></thead>
+                    <tbody>
+                        {users.map(user => (
+                            <tr key={user.uid} className="border-b">
+                                <td className="p-2 text-slate-800">{user.name}</td>
+                                <td className="p-2 text-slate-800">{user.email}</td>
+                                <td className="p-2 text-slate-800">{user.isAdmin ? 'Admin' : 'User'}</td>
+                                <td className="p-2"><button onClick={() => handleOpenModal(user)} className="text-blue-600 hover:underline">Edit</button></td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            {isModalOpen && editingUser && <UserEditModal user={editingUser} setUser={setEditingUser} onClose={() => setIsModalOpen(false)} onSave={handleSaveUser} />}
+        </div>
+    );
+};
+
+const UserEditModal: React.FC<{ user: Partial<UserProfile> & { password?: string }, setUser: React.Dispatch<any>, onClose: () => void, onSave: () => void }> = ({ user, setUser, onClose, onSave }) => {
+    
+    const handlePermissionChange = (permission: string, checked: boolean) => {
+        const currentPermissions = user.permissions || [];
+        if (checked) {
+            setUser({ ...user, permissions: [...currentPermissions, permission] });
+        } else {
+            setUser({ ...user, permissions: currentPermissions.filter(p => p !== permission) });
+        }
+    };
+    
+    const reportSubModules = reportStructure.flatMap(cat => cat.subReports?.map(sub => sub.key) ?? `${cat.key}/main`);
+    
+    const inputStyle = { backgroundColor: 'white', color: 'black', border: '1px solid #d1d5db' };
+
+    return (
+        <Modal isOpen={true} onClose={onClose} title={user.uid ? "Edit User" : "Add New User"}>
+            <div className="space-y-4">
+                <div><label className="text-slate-700">Name</label><input type="text" value={user.name} onChange={e => setUser({...user, name: e.target.value})} className="w-full p-2 rounded-md" style={inputStyle} /></div>
+                <div><label className="text-slate-700">Email</label><input type="email" value={user.email} onChange={e => setUser({...user, email: e.target.value})} className="w-full p-2 rounded-md" disabled={!!user.uid} style={inputStyle} /></div>
+                {!user.uid && <div><label className="text-slate-700">Password</label><input type="password" value={user.password} onChange={e => setUser({...user, password: e.target.value})} className="w-full p-2 rounded-md" style={inputStyle} /></div>}
+                <div><label className="flex items-center text-slate-700"><input type="checkbox" checked={user.isAdmin} onChange={e => setUser({...user, isAdmin: e.target.checked})} className="mr-2"/> Is Admin?</label></div>
+
+                {!user.isAdmin && (
+                    <div className="space-y-2 border p-2 rounded-md max-h-60 overflow-y-auto">
+                        <h4 className="font-semibold text-slate-700">Permissions</h4>
+                        {[...mainModules, ...dataEntrySubModules.map(m => m.key), ...reportSubModules].map(permission => (
+                            <div key={permission}><label className="text-slate-700"><input type="checkbox" checked={user.permissions?.includes(permission)} onChange={e => handlePermissionChange(permission as string, e.target.checked)} className="mr-2" /> {permission} </label></div>
+                        ))}
+                    </div>
+                )}
+                 <div className="flex justify-end gap-2 pt-4"><button onClick={onClose} className="px-4 py-2 bg-slate-200 rounded-md">Cancel</button><button onClick={onSave} className="px-4 py-2 bg-blue-600 text-white rounded-md">Save</button></div>
+            </div>
+        </Modal>
+    );
+};
+
+const ManualEditManager: React.FC<{ setNotification: (n: any) => void; }> = ({ setNotification }) => {
+    const { state, dispatch } = useData();
+    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedType, setSelectedType] = useState<'Invoices' | 'Vouchers'>('Invoices');
+    const [selectedId, setSelectedId] = useState('');
+    const [documentToEdit, setDocumentToEdit] = useState<SalesInvoice | JournalEntry[] | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+
+    const availableIds = useMemo(() => {
+        if (selectedType === 'Invoices') {
+            return state.salesInvoices
+                .filter(inv => inv.date === selectedDate)
+                .map(inv => inv.id);
+        } else { // Vouchers
+            const voucherIds = new Set<string>();
+            state.journalEntries
+                .filter(je => je.date === selectedDate && !je.voucherId.startsWith('SI-') && !je.voucherId.startsWith('COGS-'))
+                .forEach(je => voucherIds.add(je.voucherId));
+            return Array.from(voucherIds);
+        }
+    }, [selectedDate, selectedType, state.salesInvoices, state.journalEntries]);
+    
+    useEffect(() => {
+        setSelectedId('');
+    }, [selectedDate, selectedType]);
+
+    useEffect(() => {
+        if (selectedId) {
+            if (selectedType === 'Invoices') {
+                const invoice = state.salesInvoices.find(inv => inv.id === selectedId);
+                setDocumentToEdit(invoice || null);
+            } else {
+                const entries = state.journalEntries.filter(je => je.voucherId === selectedId);
+                setDocumentToEdit(entries.length > 0 ? entries : null);
+            }
+            setIsModalOpen(true);
+        }
+    }, [selectedId, selectedType, state.salesInvoices, state.journalEntries]);
+    
+    const handleSave = (updatedDocument: SalesInvoice | JournalEntry[]) => {
+        if (Array.isArray(updatedDocument)) { // It's a voucher
+            const batchActions = updatedDocument.map(entry => ({
+                type: 'UPDATE_ENTITY' as const,
+                payload: { entity: 'journalEntries' as const, data: entry }
+            }));
+            dispatch({ type: 'BATCH_UPDATE', payload: batchActions });
+            setNotification({ msg: `Voucher ${updatedDocument[0].voucherId} updated successfully.`, type: 'success' });
+        } else { // It's an invoice
+             const { totalBales, totalKg } = updatedDocument.items.reduce((acc, item) => {
+                const itemDetails = state.items.find(i => i.id === item.itemId);
+                if (itemDetails) {
+                    if (itemDetails.packingType === PackingType.Bales) {
+                        acc.totalBales += item.quantity;
+                        acc.totalKg += item.quantity * itemDetails.baleSize;
+                    } else {
+                        acc.totalKg += item.quantity;
+                    }
+                }
+                return acc;
+            }, { totalBales: 0, totalKg: 0 });
+            
+            const finalInvoice = { ...updatedDocument, totalBales, totalKg };
+            dispatch({ type: 'UPDATE_ENTITY', payload: { entity: 'salesInvoices', data: finalInvoice } });
+            setNotification({ msg: `Invoice ${updatedDocument.id} updated successfully.`, type: 'success' });
+        }
+        setIsModalOpen(false);
+        setSelectedId('');
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-2xl font-bold text-slate-700 mb-4">Manual Entry Editor</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end p-4 border rounded-md bg-slate-50">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700">Date</label>
+                    <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="mt-1 w-full p-2 rounded-md"/>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700">Type</label>
+                    <select value={selectedType} onChange={e => setSelectedType(e.target.value as any)} className="mt-1 w-full p-2 rounded-md">
+                        <option>Invoices</option>
+                        <option>Vouchers</option>
+                    </select>
+                </div>
+                 <div>
+                    <label className="block text-sm font-medium text-slate-700">ID</label>
+                    <select value={selectedId} onChange={e => setSelectedId(e.target.value)} className="mt-1 w-full p-2 rounded-md" disabled={availableIds.length === 0}>
+                        <option value="">Select ID...</option>
+                        {availableIds.map(id => <option key={id} value={id}>{id}</option>)}
+                    </select>
+                </div>
+            </div>
+
+            {isModalOpen && documentToEdit && (
+                <EditModal
+                    isOpen={isModalOpen}
+                    onClose={() => { setIsModalOpen(false); setSelectedId(''); }}
+                    document={documentToEdit}
+                    onSave={handleSave}
+                />
+            )}
+        </div>
+    );
+};
+
+interface EditModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    document: SalesInvoice | JournalEntry[];
+    onSave: (updatedDocument: SalesInvoice | JournalEntry[]) => void;
+}
+
+const EditModal: React.FC<EditModalProps> = ({ isOpen, onClose, document, onSave }) => {
+    const { state } = useData();
+    const isInvoice = !Array.isArray(document);
+    const [editedDoc, setEditedDoc] = useState(JSON.parse(JSON.stringify(document)));
+    const [balanceError, setBalanceError] = useState<string | null>(null);
+
+    const inputStyle = { backgroundColor: 'white', color: 'black', border: '1px solid #d1d5db' };
+    
+     useEffect(() => {
+        if (!isInvoice) {
+            const { debit, credit } = (editedDoc as JournalEntry[]).reduce((acc, entry) => ({
+                debit: acc.debit + Number(entry.debit || 0),
+                credit: acc.credit + Number(entry.credit || 0)
+            }), { debit: 0, credit: 0 });
+            
+            if (Math.abs(debit - credit) > 0.001) {
+                setBalanceError(`Voucher is unbalanced. Difference: ${(debit - credit).toFixed(2)}`);
+            } else {
+                setBalanceError(null);
+            }
+        }
+    }, [editedDoc, isInvoice]);
+
+    const handleSave = () => {
+        if (!isInvoice && balanceError) {
+            alert(balanceError);
+            return;
+        }
+        onSave(editedDoc);
+    };
+    
+    const handleInvoiceChange = (field: keyof SalesInvoice, value: any) => {
+        setEditedDoc((prev: SalesInvoice) => ({ ...prev, [field]: value }));
+    };
+
+    const handleInvoiceItemChange = (index: number, field: keyof InvoiceItem, value: any) => {
+        setEditedDoc((prev: SalesInvoice) => {
+            const newItems = [...prev.items];
+            (newItems[index] as any)[field] = value;
+            return { ...prev, items: newItems };
+        });
+    };
+    
+    const handleJournalEntryChange = (index: number, field: keyof JournalEntry, value: any) => {
+        setEditedDoc((prev: JournalEntry[]) => {
+            const newEntries = [...prev];
+            (newEntries[index] as any)[field] = value;
+            return newEntries;
+        });
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={`Edit ${isInvoice ? 'Invoice' : 'Voucher'} ${isInvoice ? (editedDoc as SalesInvoice).id : (editedDoc as JournalEntry[])[0].voucherId}`} size="5xl">
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto p-1">
+                {isInvoice ? (
+                    // INVOICE EDIT FORM
+                    <div className="space-y-4">
+                         <div className="grid grid-cols-2 gap-4">
+                            <div><label className="block text-sm font-medium text-slate-700">Date</label><input type="date" value={(editedDoc as SalesInvoice).date} onChange={e => handleInvoiceChange('date', e.target.value)} className="w-full p-2 rounded-md" style={inputStyle} /></div>
+                            <div><label className="block text-sm font-medium text-slate-700">Customer</label><select value={(editedDoc as SalesInvoice).customerId} onChange={e => handleInvoiceChange('customerId', e.target.value)} className="w-full p-2 rounded-md" style={inputStyle}><option value="">Select</option>{state.customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                        </div>
+                        <table className="w-full text-sm">
+                            <thead className="text-slate-700"><tr className="bg-slate-100"><th className="p-2">Item</th><th className="p-2 w-28">Quantity</th><th className="p-2 w-32">Rate</th><th className="p-2 w-32">Currency</th></tr></thead>
+                            <tbody>
+                                {(editedDoc as SalesInvoice).items.map((item, index) => (
+                                    <tr key={index}><td className="p-1 text-slate-800">{state.items.find(i=>i.id===item.itemId)?.name}</td><td className="p-1"><input type="number" value={item.quantity} onChange={e => handleInvoiceItemChange(index, 'quantity', Number(e.target.value))} className="w-full p-1 rounded-md text-right" style={inputStyle} /></td><td className="p-1"><input type="number" value={item.rate} onChange={e => handleInvoiceItemChange(index, 'rate', Number(e.target.value))} className="w-full p-1 rounded-md text-right" style={inputStyle} /></td><td className="p-1"><select value={item.currency} onChange={e => handleInvoiceItemChange(index, 'currency', e.target.value)} className="w-full p-1 rounded-md" style={inputStyle}>{Object.values(Currency).map(c => <option key={c} value={c}>{c}</option>)}</select></td></tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    // VOUCHER EDIT FORM
+                    <div className="space-y-4">
+                        <p className="text-xs text-orange-600 bg-orange-50 p-2 rounded-md" style={{color: '#c2410c'}}>Note: Debit/Credit fields are always in USD. If you change Original Amount/Currency, please manually recalculate and update the Debit/Credit fields.</p>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div><label className="block text-sm font-medium text-slate-700">Date</label><input type="date" value={(editedDoc as JournalEntry[])[0].date} onChange={e => handleJournalEntryChange(0, 'date', e.target.value)} className="w-full p-2 rounded-md" style={inputStyle} /></div>
+                            <div><label className="block text-sm font-medium text-slate-700">Description</label><input type="text" value={(editedDoc as JournalEntry[])[0].description} onChange={e => handleJournalEntryChange(0, 'description', e.target.value)} className="w-full p-2 rounded-md" style={inputStyle} /></div>
+                        </div>
+                         <table className="w-full text-sm">
+                            <thead className="text-slate-700"><tr className="bg-slate-100"><th className="p-2">Account</th><th className="p-2">Description</th><th className="p-2 w-32">Original Amt</th><th className="p-2 w-32">Currency</th><th className="p-2 w-32">Debit (USD)</th><th className="p-2 w-32">Credit (USD)</th></tr></thead>
+                            <tbody>
+                                {(editedDoc as JournalEntry[]).map((entry, index) => (
+                                    <tr key={entry.id}>
+                                        <td className="p-1 text-slate-800">{state.customers.find(c => c.id === entry.entityId)?.name || state.suppliers.find(s => s.id === entry.entityId)?.name || state.banks.find(b => b.id === entry.account)?.accountTitle || state.cashAccounts.find(c => c.id === entry.account)?.name || entry.account}</td>
+                                        <td className="p-1"><input type="text" value={entry.description} onChange={e => handleJournalEntryChange(index, 'description', e.target.value)} className="w-full p-1 rounded-md" style={inputStyle}/></td>
+                                        <td className="p-1"><input type="number" value={entry.originalAmount?.amount || ''} onChange={e => { const current = entry.originalAmount || { currency: Currency.Dollar, amount: 0 }; handleJournalEntryChange(index, 'originalAmount', { ...current, amount: Number(e.target.value) }); }} className="w-full p-1 rounded-md text-right" style={inputStyle}/></td>
+                                        <td className="p-1"><select value={entry.originalAmount?.currency || ''} onChange={e => { const current = entry.originalAmount || { currency: Currency.Dollar, amount: 0 }; handleJournalEntryChange(index, 'originalAmount', { ...current, currency: e.target.value as Currency }); }} className="w-full p-1 rounded-md" style={inputStyle}>{Object.values(Currency).map(c => <option key={c} value={c}>{c}</option>)}</select></td>
+                                        <td className="p-1"><input type="number" value={entry.debit} onChange={e => handleJournalEntryChange(index, 'debit', Number(e.target.value))} className="w-full p-1 rounded-md text-right" style={inputStyle}/></td>
+                                        <td className="p-1"><input type="number" value={entry.credit} onChange={e => handleJournalEntryChange(index, 'credit', Number(e.target.value))} className="w-full p-1 rounded-md text-right" style={inputStyle}/></td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        {balanceError && <p className="text-right font-semibold text-red-600">{balanceError}</p>}
+                    </div>
+                )}
+            </div>
+            <div className="flex justify-end gap-3 pt-4 border-t">
+                <button onClick={onClose} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300">Cancel</button>
+                <button onClick={handleSave} disabled={!!balanceError} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300">Save Changes</button>
+            </div>
+        </Modal>
+    );
+};
+
 
 const DataCorrectionManager: React.FC<{ setNotification: (n: any) => void; }> = ({ setNotification }) => {
     const { state, dispatch } = useData();
@@ -314,7 +658,7 @@ const DataCorrectionManager: React.FC<{ setNotification: (n: any) => void; }> = 
                             <button onClick={() => setIsHardResetConfirmOpen(false)} className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300">
                                 Cancel
                             </button>
-                            <button onClick={executeHardReset} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">
+                            <button onClick={executeHardReset} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-800">
                                 Yes, Delete All Transactions
                             </button>
                         </div>
@@ -436,221 +780,12 @@ const BackupRestoreManager: React.FC<{ setNotification: (n: any) => void; }> = (
 
 
 const AdminModule: React.FC<{ setNotification: (n: any) => void; }> = ({ setNotification }) => {
-    const { state, userProfile } = useData();
-    const [users, setUsers] = useState<UserProfile[]>([]);
-    const [newUser, setNewUser] = useState({ name: '', email: '', password: '', permissions: [] as string[], isAdmin: false });
-    const [isCreatingUser, setIsCreatingUser] = useState(false);
-
-    useEffect(() => {
-        if (!db) return;
-        const unsubscribe = db.collection('users').onSnapshot((snapshot: any) => {
-            const userList: UserProfile[] = [];
-            snapshot.forEach((doc: any) => {
-                userList.push({ uid: doc.id, ...doc.data() } as UserProfile);
-            });
-            setUsers(userList.sort((a,b) => a.name.localeCompare(b.name)));
-        }, (error: any) => {
-            console.error("Error fetching users:", error);
-            setNotification({ msg: "Could not fetch user list.", type: 'error' });
-        });
-
-        return () => unsubscribe();
-    }, []);
-
-    const handleCreateUser = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!newUser.email || !newUser.password || !newUser.name) {
-            setNotification({ msg: "Name, email, and password are required.", type: 'error' });
-            return;
-        }
-        if (newUser.password.length < 6) {
-            setNotification({ msg: "Password must be at least 6 characters long.", type: 'error' });
-            return;
-        }
-        setIsCreatingUser(true);
-        try {
-            // Step 1: Create user in Firebase Auth
-            const userCredential = await auth.createUserWithEmailAndPassword(newUser.email, newUser.password);
-            const user = userCredential.user;
-
-            if (user) {
-                // Step 2: Create user profile document in Firestore
-                const userProfileData = {
-                    name: newUser.name,
-                    email: newUser.email,
-                    isAdmin: newUser.isAdmin,
-                    permissions: newUser.isAdmin ? allPermissions : newUser.permissions
-                };
-                await db.collection('users').doc(user.uid).set(userProfileData);
-
-                setNotification({ msg: `User ${newUser.email} created successfully in Firebase and Firestore.`, type: 'success' });
-                setNewUser({ name: '', email: '', password: '', permissions: [], isAdmin: false });
-            } else {
-                throw new Error("Firebase user creation failed unexpectedly.");
-            }
-        } catch (error: any) {
-            console.error("Error creating user:", error);
-            const errorMessage = error.code === 'auth/email-already-in-use'
-                ? 'This email is already registered.'
-                : error.message;
-            setNotification({ msg: `Error: ${errorMessage}`, type: 'error' });
-        } finally {
-            setIsCreatingUser(false);
-        }
-    };
-
-    const handleAdminToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const isAdmin = e.target.checked;
-        setNewUser(prev => ({ ...prev, isAdmin, permissions: isAdmin ? allPermissions : [] }));
-    };
-    
-    const handlePermissionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { value, checked } = e.target;
-        setNewUser(prev => {
-            const newPermissions = checked 
-                ? [...prev.permissions, value]
-                : prev.permissions.filter(p => p !== value);
-            
-            // If a data entry sub-module is checked, ensure the parent 'dataEntry' is also checked
-            if (checked && value.startsWith('dataEntry/')) {
-                if (!newPermissions.includes('dataEntry')) {
-                    newPermissions.push('dataEntry');
-                }
-            }
-
-            return { ...prev, permissions: newPermissions };
-        });
-    };
-
-    const handleGroupToggle = (e: React.ChangeEvent<HTMLInputElement>, permissions: string[]) => {
-        const { checked } = e.target;
-        setNewUser(prev => {
-             const currentPermissions = new Set(prev.permissions);
-             if (checked) {
-                 permissions.forEach(p => currentPermissions.add(p));
-             } else {
-                 permissions.forEach(p => currentPermissions.delete(p));
-             }
-             return { ...prev, permissions: Array.from(currentPermissions) };
-        });
-    };
+    const { userProfile } = useData();
     
     return (
         <div className="space-y-8">
-            <div className="bg-white p-6 rounded-lg shadow-md">
-                <h2 className="text-2xl font-bold text-slate-700 mb-4">Create New User</h2>
-                <form onSubmit={handleCreateUser} className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                        <div><label className="block text-sm font-medium text-slate-700">Name</label><input type="text" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} required className="mt-1 w-full p-2 border border-slate-300 rounded-md"/></div>
-                        <div><label className="block text-sm font-medium text-slate-700">Email</label><input type="email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} required className="mt-1 w-full p-2 border border-slate-300 rounded-md"/></div>
-                        <div><label className="block text-sm font-medium text-slate-700">Password</label><input type="password" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required className="mt-1 w-full p-2 border border-slate-300 rounded-md"/></div>
-                    </div>
-                    
-                    <fieldset className="border rounded-md p-4 space-y-4">
-                        <legend className="font-semibold text-lg text-slate-800 px-2">Permissions</legend>
-                        <div className="flex items-center space-x-3 p-2 bg-blue-50 rounded-md border border-blue-200">
-                             <input id="isAdmin" type="checkbox" checked={newUser.isAdmin} onChange={handleAdminToggle} className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"/>
-                             <label htmlFor="isAdmin" className="font-semibold text-blue-800">Is Admin (Full Access)</label>
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                            {mainModules.filter(m => m !== 'reports' && m !== 'dataEntry' && m !== 'admin').map(module => (
-                                <div key={module}>
-                                    <label className="flex items-center space-x-2 capitalize text-slate-800">
-                                        <input type="checkbox" value={module} checked={newUser.permissions.includes(module)} onChange={handlePermissionChange} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
-                                        <span>{module}</span>
-                                    </label>
-                                </div>
-                            ))}
-                            {mainModules.includes('admin') && (
-                                <div key="admin">
-                                    <label className="flex items-center space-x-2 capitalize text-slate-800 font-semibold text-red-600">
-                                        <input type="checkbox" value="admin" checked={newUser.permissions.includes("admin")} onChange={handlePermissionChange} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-red-600 focus:ring-red-500" />
-                                        <span>Admin</span>
-                                    </label>
-                                </div>
-                            )}
-                        </div>
-                        
-                        {/* Data Entry Section */}
-                        <div className="col-span-full border rounded-md p-3 bg-slate-50">
-                            <div className="flex items-center">
-                                <input 
-                                    type="checkbox" 
-                                    id="dataEntry-group"
-                                    checked={dataEntrySubModules.map(sm => sm.key).every(p => newUser.permissions.includes(p))} 
-                                    ref={el => { if (el) { el.indeterminate = dataEntrySubModules.map(sm => sm.key).some(p => newUser.permissions.includes(p)) && !dataEntrySubModules.map(sm => sm.key).every(p => newUser.permissions.includes(p)); }}} 
-                                    onChange={(e) => handleGroupToggle(e, ['dataEntry', ...dataEntrySubModules.map(sm => sm.key)])} 
-                                    disabled={newUser.isAdmin} 
-                                    className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500"
-                                />
-                                <label htmlFor="dataEntry-group" className="ml-2 font-medium text-slate-700 capitalize">Data Entry</label>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 mt-2 pl-6">
-                                {dataEntrySubModules.map(subModule => (
-                                    <label key={subModule.key} className="flex items-center space-x-2 text-sm text-slate-800">
-                                        <input 
-                                            type="checkbox" 
-                                            value={subModule.key} 
-                                            checked={newUser.permissions.includes(subModule.key)} 
-                                            onChange={handlePermissionChange} 
-                                            disabled={newUser.isAdmin} 
-                                            className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" 
-                                        />
-                                        <span>{subModule.label}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Reports Section */}
-                        <div className="col-span-full border-t pt-4">
-                            <h3 className="font-semibold text-slate-800 mb-2">Reports Access</h3>
-                             <div className="space-y-4">
-                                {reportStructure.map(category => {
-                                    const categoryPermissions = category.subReports ? category.subReports.map(sr => sr.key) : [`${category.key}/main`];
-                                    const allInCategory = categoryPermissions.every(p => newUser.permissions.includes(p));
-                                    const someInCategory = categoryPermissions.some(p => newUser.permissions.includes(p));
-                                    
-                                    return (
-                                        <div key={category.key} className="p-3 bg-slate-50 rounded border">
-                                            <div className="flex items-center">
-                                                <input type="checkbox" checked={allInCategory} ref={el => { if (el) { el.indeterminate = someInCategory && !allInCategory; } }} onChange={(e) => handleGroupToggle(e, [`reports/${category.key}`, ...categoryPermissions])} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
-                                                <label className="ml-2 font-medium text-slate-700">{category.label}</label>
-                                            </div>
-                                             {category.subReports && <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 pl-6">
-                                                {category.subReports.map(report => (
-                                                    <label key={report.key} className="flex items-center space-x-2 text-sm text-slate-800">
-                                                        <input type="checkbox" value={report.key} checked={newUser.permissions.includes(report.key)} onChange={handlePermissionChange} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
-                                                        <span>{report.label}</span>
-                                                    </label>
-                                                ))}
-                                            </div>}
-                                            {!category.subReports && <div className="mt-2 pl-6">
-                                                 <label className="flex items-center space-x-2 text-sm text-slate-800">
-                                                    <input type="checkbox" value={`${category.key}/main`} checked={newUser.permissions.includes(`${category.key}/main`)} onChange={handlePermissionChange} disabled={newUser.isAdmin} className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" />
-                                                    <span>Access Report</span>
-                                                 </label>
-                                            </div>}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </fieldset>
-
-                    <div className="flex justify-end pt-2">
-                        <button type="submit" disabled={isCreatingUser} className="py-2 px-6 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400">
-                            {isCreatingUser ? 'Creating...' : 'Create User'}
-                        </button>
-                    </div>
-                </form>
-                <p className="text-xs text-slate-500 mt-2">Note: This creates the user directly in Firebase Authentication and saves their profile in Firestore.</p>
-            </div>
-             <div className="bg-white p-6 rounded-lg shadow-md">
-                <h2 className="text-2xl font-bold text-slate-700 mb-4">Manage Users</h2>
-                 <div className="overflow-x-auto"><table className="w-full text-left table-auto"><thead><tr className="bg-slate-100"><th className="p-3 font-semibold text-slate-600">Name</th><th className="p-3 font-semibold text-slate-600">Email</th><th className="p-3 font-semibold text-slate-600">Role</th></tr></thead><tbody>{users.map(user => (<tr key={user.uid} className="border-b hover:bg-slate-50"><td className="p-3 text-slate-700">{user.name}</td><td className="p-3 text-slate-700">{user.email}</td><td className="p-3 text-slate-700 capitalize">{user.isAdmin ? 'Admin' : 'Custom'}</td></tr>))}</tbody></table></div>
-            </div>
+            {userProfile?.isAdmin && <UserManager setNotification={setNotification} />}
+            <ManualEditManager setNotification={setNotification} />
             {userProfile?.isAdmin && <DataCorrectionManager setNotification={setNotification} />}
             {userProfile?.isAdmin && <BackupRestoreManager setNotification={setNotification} />}
         </div>

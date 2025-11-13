@@ -2,8 +2,14 @@ import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext.tsx';
 import ReportToolbar from './ReportToolbar.tsx';
 import { OriginalPurchased, PackingType, Currency } from '../../types.ts';
+// FIX: Correctly import the exported ReportKey type.
+import { ReportKey } from '../ReportsModule.tsx';
 
-const BalanceSheet: React.FC = () => {
+interface BalanceSheetProps {
+    onNavigate: (key: ReportKey, filters?: any) => void;
+}
+
+const BalanceSheet: React.FC<BalanceSheetProps> = ({ onNavigate }) => {
     const { state } = useData();
     const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -14,7 +20,6 @@ const BalanceSheet: React.FC = () => {
             .filter(je => je.account === accountId)
             .reduce((sum, je) => sum + je.debit - je.credit, 0);
         
-        // FIX: Define calculateTotalBalance to sum balances for a list of accounts.
         const calculateTotalBalance = (accounts: { id: string }[]) => {
             return accounts.reduce((sum, acc) => sum + getAccountBalance(acc.id), 0);
         };
@@ -97,7 +102,7 @@ const BalanceSheet: React.FC = () => {
         const netIncome = revenue - expenses;
 
         // ASSETS
-        const cash = getAccountBalance(state.cashAccounts[0]?.id || '');
+        const cash = state.cashAccounts.reduce((sum, acc) => sum + getAccountBalance(acc.id), 0);
         const bank = state.banks.reduce((sum, b) => sum + getAccountBalance(b.id), 0);
         const receivables = getAccountBalance(state.receivableAccounts[0]?.id);
         const investments = calculateTotalBalance(state.investmentAccounts);
@@ -110,7 +115,7 @@ const BalanceSheet: React.FC = () => {
         const totalAssets = totalCurrentAssets + totalNonCurrentAssets;
 
         // LIABILITIES
-        const payables = getAccountBalance(state.payableAccounts[0]?.id) + getAccountBalance(state.payableAccounts[1]?.id);
+        const payables = getAccountBalance(state.payableAccounts.find(acc => acc.name === 'Accounts Payable')?.id || '') + getAccountBalance(state.payableAccounts.find(acc => acc.name === 'Customs Charges Payable')?.id || '');
         const loans = calculateTotalBalance(state.loanAccounts);
         const totalCurrentLiabilities = payables;
         const totalLongTermLiabilities = loans;
@@ -120,7 +125,6 @@ const BalanceSheet: React.FC = () => {
         const capital = getAccountBalance(state.capitalAccounts.find(c => c.id === 'CAP-001')?.id || '');
         const openingBalanceEquity = getAccountBalance(state.capitalAccounts.find(c => c.id === 'CAP-002')?.id || '');
         
-        // This adjustment is a plug to make the sheet balance due to inventory not being fully journaled.
         const inventoryValueNotOnBooks = (rawMaterialInventoryValue + finishedGoodsInventoryValue) - getAccountBalance(state.inventoryAccounts[0]?.id);
         const totalEquity = capital + openingBalanceEquity + netIncome + inventoryValueNotOnBooks;
         
@@ -151,9 +155,15 @@ const BalanceSheet: React.FC = () => {
     }, [asOfDate, state]);
 
     const formatCurrency = (val: number) => val.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const AccountRow: React.FC<{ label: string, value: number, isSubtotal?: boolean, isTotal?: boolean }> = ({ label, value, isSubtotal, isTotal }) => (
+    const AccountRow: React.FC<{ label: string, value: number, isSubtotal?: boolean, isTotal?: boolean, onClick?: () => void }> = ({ label, value, isSubtotal, isTotal, onClick }) => (
         <div className={`flex justify-between py-1.5 text-slate-800 ${isSubtotal ? 'border-t mt-1 pt-1.5 font-semibold' : ''} ${isTotal ? 'border-t-2 border-slate-400 mt-2 pt-2 font-bold text-lg' : ''}`}>
-            <span className={isSubtotal || isTotal ? '' : 'pl-4'}>{label}</span>
+            {onClick ? (
+                <button onClick={onClick} className={`${isSubtotal || isTotal ? '' : 'pl-4'} text-left text-blue-600 hover:underline focus:outline-none`}>
+                    {label}
+                </button>
+            ) : (
+                <span className={isSubtotal || isTotal ? '' : 'pl-4'}>{label}</span>
+            )}
             <span>{formatCurrency(value)}</span>
         </div>
     );
@@ -174,20 +184,20 @@ const BalanceSheet: React.FC = () => {
                     <h3 className="text-xl font-bold text-slate-800 border-b-2 pb-1">Assets</h3>
                     <div className="space-y-2">
                         <h4 className="font-semibold text-slate-700 text-lg">Current Assets</h4>
-                        <AccountRow label="Cash" value={assets.cash} />
-                        <AccountRow label="Bank" value={assets.bank} />
-                        <AccountRow label="Accounts Receivable" value={assets.receivables} />
-                        <AccountRow label="Finished Goods Inventory" value={assets.finishedGoodsInventory} />
-                        <AccountRow label="Raw Material Inventory" value={assets.rawMaterialInventory} />
-                        <AccountRow label="Packing Material Inventory" value={assets.packingMaterialInventory} />
+                        <AccountRow label="Cash" value={assets.cash} onClick={() => onNavigate('cash-bank/cash-book', { endDate: asOfDate })} />
+                        <AccountRow label="Bank" value={assets.bank} onClick={() => onNavigate('cash-bank/bank-book', { endDate: asOfDate })} />
+                        <AccountRow label="Accounts Receivable" value={assets.receivables} onClick={() => onNavigate('ledger/main', { accountType: 'Customer', endDate: asOfDate })} />
+                        <AccountRow label="Finished Goods Inventory" value={assets.finishedGoodsInventory} onClick={() => onNavigate('item-performance/stock-worth', { endDate: asOfDate })} />
+                        <AccountRow label="Raw Material Inventory" value={assets.rawMaterialInventory} onClick={() => onNavigate('original-stock-v1/main')} />
+                        <AccountRow label="Packing Material Inventory" value={assets.packingMaterialInventory} onClick={() => onNavigate('ledger/main', { accountType: 'Inventory', accountId: 'INV-PM-001', endDate: asOfDate })}/>
                         <AccountRow label="Total Current Assets" value={assets.totalCurrentAssets} isSubtotal />
                     </div>
                      <div className="space-y-2">
                         <h4 className="font-semibold text-slate-700 text-lg">Non-Current Assets</h4>
-                        <AccountRow label="Investments" value={assets.investments} />
-                        <AccountRow label="Fixed Assets" value={assets.fixedAssets} />
-                        <AccountRow label="Accumulated Depreciation" value={assets.accumulatedDepreciation} />
-                         <AccountRow label="Total Non-Current Assets" value={assets.totalNonCurrentAssets} isSubtotal />
+                        <AccountRow label="Investments" value={assets.investments} onClick={() => onNavigate('ledger/main', { accountType: 'Investment', endDate: asOfDate })} />
+                        <AccountRow label="Fixed Assets" value={assets.fixedAssets} onClick={() => onNavigate('ledger/main', { accountType: 'Fixed Asset', accountId: 'FA-001', endDate: asOfDate })} />
+                        <AccountRow label="Accumulated Depreciation" value={assets.accumulatedDepreciation} onClick={() => onNavigate('ledger/main', { accountType: 'Accumulated Depreciation', accountId: 'AD-001', endDate: asOfDate })} />
+                        <AccountRow label="Total Non-Current Assets" value={assets.totalNonCurrentAssets} isSubtotal />
                     </div>
                     <AccountRow label="Total Assets" value={assets.totalAssets} isTotal />
                 </div>
@@ -196,21 +206,21 @@ const BalanceSheet: React.FC = () => {
                     <h3 className="text-xl font-bold text-slate-800 border-b-2 pb-1">Liabilities & Equity</h3>
                     <div className="space-y-2">
                         <h4 className="font-semibold text-slate-700 text-lg">Current Liabilities</h4>
-                        <AccountRow label="Accounts Payable" value={liabilities.payables} />
+                        <AccountRow label="Accounts Payable" value={liabilities.payables} onClick={() => onNavigate('ledger/main', { accountType: 'Payable', accountId: 'AP-001', endDate: asOfDate })} />
                         <AccountRow label="Total Current Liabilities" value={liabilities.totalCurrentLiabilities} isSubtotal />
                     </div>
                     <div className="space-y-2">
                         <h4 className="font-semibold text-slate-700 text-lg">Long-Term Liabilities</h4>
-                        <AccountRow label="Loans" value={liabilities.loans} />
+                        <AccountRow label="Loans" value={liabilities.loans} onClick={() => onNavigate('ledger/main', { accountType: 'Loan', endDate: asOfDate })} />
                         <AccountRow label="Total Long-Term Liabilities" value={liabilities.totalLongTermLiabilities} isSubtotal />
                     </div>
                     <AccountRow label="Total Liabilities" value={liabilities.totalLiabilities} isSubtotal />
                     
                     <div className="space-y-2 pt-4">
                         <h4 className="font-semibold text-slate-700 text-lg">Equity</h4>
-                        <AccountRow label="Owner's Capital" value={equity.capital} />
-                        <AccountRow label="Opening Balance Equity" value={equity.openingBalanceEquity} />
-                        <AccountRow label="Retained Earnings (Net Income)" value={equity.retainedEarnings} />
+                        <AccountRow label="Owner's Capital" value={equity.capital} onClick={() => onNavigate('ledger/main', { accountType: 'Capital', accountId: 'CAP-001', endDate: asOfDate })}/>
+                        <AccountRow label="Opening Balance Equity" value={equity.openingBalanceEquity} onClick={() => onNavigate('ledger/main', { accountType: 'Capital', accountId: 'CAP-002', endDate: asOfDate })}/>
+                        <AccountRow label="Retained Earnings (Net Income)" value={equity.retainedEarnings} onClick={() => onNavigate('financial/profit-loss', { endDate: asOfDate })}/>
                         <AccountRow label="Inventory Adjustment" value={equity.inventoryAdjustment} />
                         <AccountRow label="Total Equity" value={equity.totalEquity} isSubtotal />
                     </div>

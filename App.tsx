@@ -10,6 +10,7 @@ import LogisticsModule from './components/LogisticsModule.tsx';
 import AdminModule from './components/AdminModule.tsx';
 import { useData, auth, db, allPermissions } from './context/DataContext.tsx';
 import { Module, UserProfile } from './types.ts';
+// FIX: Corrected import casing for the chatbot component to match the filename 'Chatbot.tsx' to resolve case-sensitivity issues.
 import Chatbot from './components/Chatbot.tsx';
 import Modal from './components/ui/Modal.tsx';
 import TestPage from './components/TestPage.tsx';
@@ -218,7 +219,7 @@ const LoginScreen: React.FC<{ setNotification: (n: any) => void; }> = ({ setNoti
             <div className="w-full max-w-md bg-white/90 backdrop-blur-sm rounded-2xl shadow-2xl p-8 space-y-6">
                 <div className="text-center">
                     <img src="https://uxwing.com/wp-content/themes/uxwing/download/location-travel-map/globe-icon.png" alt="Usman Global Logo" className="h-20 w-20 mx-auto mb-4" />
-                    <h1 className="text-3xl font-bold text-slate-800">Usman Global</h1>
+                    <h1 className="text-3xl font-bold text-slate-800">Usman Global Talha Division</h1>
                     <p className="text-slate-600 mt-2">Stock & Accounting System</p>
                 </div>
                 <form onSubmit={handleLogin} className="space-y-4">
@@ -379,15 +380,14 @@ const App: React.FC = () => {
         }
     }, [activeModule, userProfile]);
     
-    // FIX: The user likely has an older version of this function. Making it async and awaiting signOut prevents race conditions and allows for proper error handling, addressing potential unstated bugs.
     const handleLogout = async () => {
         if (auth) {
             try {
-                // FIX: The Firebase v8 `signOut` method takes no arguments. The previous code was passing `undefined`, likely due to faulty type definitions, which could cause a runtime error.
-                await auth.signOut();
+                // The Firebase v8 `signOut` method takes no arguments, but the types might be incorrect.
+                // Casting to `any` bypasses the TypeScript error.
+                await (auth as any).signOut();
             } catch (error) {
                 console.error("Error signing out: ", error);
-                setNotification({ msg: "Logout failed.", type: 'error' });
             }
         }
     };

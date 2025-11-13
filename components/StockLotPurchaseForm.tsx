@@ -8,6 +8,7 @@ import { generateFinishedGoodsPurchaseId } from '../utils/idGenerator.ts';
 import ItemSelector from './ui/ItemSelector.tsx';
 import CurrencyInput from './ui/CurrencyInput.tsx';
 import Modal from './ui/Modal.tsx';
+import EntitySelector from './ui/EntitySelector.tsx';
 
 interface StockLotPurchaseFormProps {
     showNotification: (msg: string) => void;
@@ -316,10 +317,12 @@ const StockLotPurchaseForm: React.FC<StockLotPurchaseFormProps> = ({ showNotific
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-slate-700">Supplier</label>
-                    <select value={formData.supplierId} onChange={e => setFormData({...formData, supplierId: e.target.value})} required className={inputClasses}>
-                        <option value="">Select Supplier</option>
-                        {state.suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <EntitySelector
+                        entities={state.suppliers}
+                        selectedEntityId={formData.supplierId || ''}
+                        onSelect={(id) => setFormData(prev => ({ ...prev, supplierId: id }))}
+                        placeholder="Search Suppliers..."
+                    />
                 </div>
                  <div>
                     <label className="block text-sm font-medium text-slate-700">Batch Number</label>
