@@ -104,13 +104,13 @@
           animation: fade-in-out-short 3s ease-in-out forwards;
       }
       /* Global Form Element Styles */
-      input[type="text"],
-      input[type="number"],
-      input[type="date"],
-      input[type="email"],
-      input[type="password"],
-      select,
-      textarea {
+      main input[type="text"],
+      main input[type="number"],
+      main input[type="date"],
+      main input[type="email"],
+      main input[type="password"],
+      main select,
+      main textarea {
         background-color: #111827 !important; /* bg-gray-900 */
         color: #f9fafb !important; /* text-gray-50 */
         border: 1px solid #4b5563 !important; /* border-gray-600 */
@@ -118,9 +118,9 @@
       }
       
       /* Focus State */
-      input:focus,
-      select:focus,
-      textarea:focus {
+      main input:focus,
+      main select:focus,
+      main textarea:focus {
         outline: 2px solid transparent;
         outline-offset: 2px;
         border-color: #3b82f6 !important; /* focus:border-blue-500 */
@@ -128,9 +128,9 @@
       }
       
       /* Disabled State */
-      input:disabled,
-      select:disabled,
-      textarea:disabled {
+      main input:disabled,
+      main select:disabled,
+      main textarea:disabled {
         background-color: #374151 !important; /* bg-gray-700 */
         color: #9ca3af !important; /* text-gray-400 */
         cursor: not-allowed;
@@ -138,13 +138,13 @@
       }
 
       /* Placeholder Text Color */
-      ::placeholder {
+      main ::placeholder {
         color: #6b7280 !important; /* text-gray-500 */
         opacity: 1; /* Firefox */
       }
       
       /* Make select dropdown arrow visible on dark background */
-      select {
+      main select {
         background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%239ca3af' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
         background-position: right 0.5rem center;
         background-repeat: no-repeat;

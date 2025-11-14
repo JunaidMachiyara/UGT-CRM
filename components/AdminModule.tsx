@@ -146,7 +146,7 @@ const ManualEditManager: React.FC<{ setNotification: (n: any) => void; }> = ({ s
         } else { // Vouchers
             const voucherIds = new Set<string>();
             state.journalEntries
-                .filter(je => je.date === selectedDate && !je.voucherId.startsWith('SI-') && !je.voucherId.startsWith('COGS-'))
+                .filter(je => je.date === selectedDate && !je.voucherId.startsWith('SI') && !je.voucherId.startsWith('COGS-'))
                 .forEach(je => voucherIds.add(je.voucherId));
             return Array.from(voucherIds);
         }

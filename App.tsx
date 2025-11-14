@@ -10,8 +10,8 @@ import LogisticsModule from './components/LogisticsModule.tsx';
 import AdminModule from './components/AdminModule.tsx';
 import { useData, auth, db, allPermissions } from './context/DataContext.tsx';
 import { Module, UserProfile } from './types.ts';
-// FIX: Correct the import casing for the Chatbot component to resolve case-sensitivity issues.
-import Chatbot from './components/Chatbot.tsx';
+// FIX: Corrected the import casing for the Chatbot component to match the filename 'chatbot.tsx'.
+import Chatbot from './components/chatbot.tsx';
 import Modal from './components/ui/Modal.tsx';
 import TestPage from './components/TestPage.tsx';
 import ChatModule from './components/ChatModule.tsx';

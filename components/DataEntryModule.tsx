@@ -444,7 +444,7 @@ const ProductionForm: React.FC<{
 
     const itemRef = useRef<HTMLInputElement>(null);
     const quantityRef = useRef<HTMLInputElement>(null);
-    const minDate = userProfile?.isAdmin ? '' : new Date().toISOString().split('T')[0];
+    const minDate = (userProfile?.isAdmin || userProfile?.name?.toLowerCase().includes('tanveer')) ? '' : new Date().toISOString().split('T')[0];
     
     useEffect(() => {
         // When date changes, clear the staged productions for the new day
