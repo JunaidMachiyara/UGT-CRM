@@ -10,8 +10,6 @@ import LogisticsModule from './components/LogisticsModule.tsx';
 import AdminModule from './components/AdminModule.tsx';
 import { useData, auth, db, allPermissions } from './context/DataContext.tsx';
 import { Module, UserProfile } from './types.ts';
-// FIX: Corrected import casing to resolve file name casing conflict.
-import Chatbot from './components/chatbot.tsx';
 import Modal from './components/ui/Modal.tsx';
 import TestPage from './components/TestPage.tsx';
 import ChatModule from './components/ChatModule.tsx';
@@ -569,7 +567,6 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </Modal>
-            <Chatbot onNavigate={handleNavigation} />
             {showEscapeConfirm && (
                 <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-gray-800 text-white py-2 px-4 rounded-lg shadow-lg z-50 animate-fade-in-out-short font-semibold">
                     Press Escape again to go back
