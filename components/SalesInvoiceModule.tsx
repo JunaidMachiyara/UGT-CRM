@@ -344,26 +344,25 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
     };
 
     const calculateTotals = (items: InvoiceItem[]) => {
-        let totalBales = 0;
+        let totalPackages = 0;
         let totalKg = 0;
         items.forEach(item => {
             const itemDetails = state.items.find(i => i.id === item.itemId);
             if (!itemDetails) return;
     
-            if (itemDetails.packingType === PackingType.Bales) {
-                totalBales += item.quantity;
-            }
-            
-            if (itemDetails.packingType === PackingType.Bales || itemDetails.packingType === PackingType.Sacks) {
+            const isPackage = [PackingType.Bales, PackingType.Sacks, PackingType.Box, PackingType.Bags].includes(itemDetails.packingType);
+
+            if (isPackage) {
+                totalPackages += item.quantity;
                 totalKg += item.quantity * itemDetails.baleSize;
-            } else { // PackingType.Kg
+            } else { // It must be PackingType.Kg
                 totalKg += item.quantity;
             }
         });
-        return { totalBales, totalKg };
+        return { totalPackages, totalKg };
     };
     
-    const { totalBales, totalKg } = useMemo(() => {
+    const { totalPackages, totalKg } = useMemo(() => {
         const validItems: InvoiceItem[] = currentInvoiceItems
             .map(item => ({...item, quantity: Number(item.quantity) || 0 }))
             .filter(item => item.quantity > 0);
@@ -381,7 +380,7 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
             return;
         }
 
-        const { totalBales, totalKg } = calculateTotals(itemsWithNumericQuantities);
+        const { totalPackages, totalKg } = calculateTotals(itemsWithNumericQuantities);
 
         const newInvoice: SalesInvoice = {
             id: invoiceId,
@@ -389,7 +388,7 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
             customerId,
             items: itemsWithNumericQuantities,
             status: editingInvoice?.status || InvoiceStatus.Unposted,
-            totalBales,
+            totalBales: totalPackages, // totalBales property is used for this in the type
             totalKg,
             logoId: logoId || undefined,
             packingColor: packingColor || undefined,
@@ -576,8 +575,8 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
                                 <h3 className="text-lg font-semibold text-slate-600">Current Invoice Items</h3>
                                 <div className="flex space-x-4">
                                     <div className="text-right p-2 bg-slate-100 rounded-lg">
-                                        <p className="text-xs font-medium text-slate-500">Total Bales</p>
-                                        <p className="text-lg font-bold text-slate-800">{totalBales.toLocaleString()}</p>
+                                        <p className="text-xs font-medium text-slate-500">Total Packages</p>
+                                        <p className="text-lg font-bold text-slate-800">{totalPackages.toLocaleString()}</p>
                                     </div>
                                     <div className="text-right p-2 bg-slate-100 rounded-lg">
                                         <p className="text-xs font-medium text-slate-500">Total Kg</p>
@@ -590,7 +589,7 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
                                     <thead>
                                         <tr className="bg-slate-100">
                                             <th className="p-3 font-semibold text-slate-600">Item Name</th>
-                                            <th className="p-3 font-semibold text-slate-600 text-right">Bale Size</th>
+                                            <th className="p-3 font-semibold text-slate-600 text-right">Package Size</th>
                                             <th className="p-3 font-semibold text-slate-600 w-24">Quantity</th>
                                             <th className="p-3 font-semibold text-slate-600 text-right">Total Kg</th>
                                             <th className="p-3 font-semibold text-slate-600 w-32">Rate</th>
@@ -603,7 +602,8 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
                                             const itemDetails = state.items.find(i => i.id === item.itemId);
                                             let totalKgForItem = 0;
                                             if (itemDetails && item.quantity) {
-                                                if (itemDetails.packingType === PackingType.Bales || itemDetails.packingType === PackingType.Sacks) {
+                                                const isPackage = [PackingType.Bales, PackingType.Sacks, PackingType.Box, PackingType.Bags].includes(itemDetails.packingType);
+                                                if (isPackage) {
                                                     totalKgForItem = Number(item.quantity) * itemDetails.baleSize;
                                                 } else { // Kg
                                                     totalKgForItem = Number(item.quantity);
@@ -620,7 +620,7 @@ const SalesInvoiceModule: React.FC<SalesInvoiceProps> = ({ setModule, userProfil
                                                     {itemDetails?.name}
                                                     <span className="text-xs text-slate-500 ml-2">({item.itemId})</span>
                                                 </td>
-                                                <td className="p-3 text-slate-700 align-middle text-right">{itemDetails?.packingType === PackingType.Bales ? itemDetails.baleSize : 'N/A'}</td>
+                                                <td className="p-3 text-slate-700 align-middle text-right">{itemDetails?.packingType !== PackingType.Kg ? itemDetails.baleSize : 'N/A'}</td>
                                                 <td className="p-3 text-slate-700 align-middle">
                                                     <input
                                                         type="number"

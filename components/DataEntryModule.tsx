@@ -146,7 +146,7 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
 
     const openingsForDate = useMemo(() => {
         return state.originalOpenings
-            .filter(o => o.date === formData.date)
+            .filter(o => o.date === formData.date && o.supplierId !== 'SUP-INTERNAL-STOCK')
             .map(o => {
                 const supplier = state.suppliers.find(s => s.id === o.supplierId);
                 const subSupplier = state.subSuppliers.find(ss => ss.id === o.subSupplierId);
@@ -424,6 +424,193 @@ const OriginalOpeningForm: React.FC<{ showNotification: (msg: string) => void; u
     );
 };
 
+const BalesOpeningForm: React.FC<{ showNotification: (msg: string) => void; userProfile: UserProfile | null }> = ({ showNotification, userProfile }) => {
+    const { state, dispatch } = useData();
+    const [formData, setFormData] = useState({ date: new Date().toISOString().split('T')[0], itemId: '', opened: '' });
+    const [totalKg, setTotalKg] = useState(0);
+    const [availableStock, setAvailableStock] = useState(0);
+
+    const itemStock = useMemo(() => {
+        const stockMap = new Map<string, number>();
+        state.items.forEach(item => {
+            const production = state.productions.filter(p => p.itemId === item.id).reduce((sum, p) => sum + p.quantityProduced, 0);
+            const sales = state.salesInvoices.filter(inv => inv.status !== InvoiceStatus.Unposted).flatMap(inv => inv.items).filter(i => i.itemId === item.id).reduce((sum, i) => sum + i.quantity, 0);
+            stockMap.set(item.id, (item.openingStock || 0) + production - sales);
+        });
+        return stockMap;
+    }, [state.items, state.productions, state.salesInvoices]);
+
+    useEffect(() => {
+        setAvailableStock(itemStock.get(formData.itemId) || 0);
+        const item = state.items.find(i => i.id === formData.itemId);
+        const openedValue = Number(formData.opened) || 0;
+        if (item && openedValue > 0) {
+            const packingSize = item.packingType === PackingType.Kg ? 1 : item.baleSize;
+            setTotalKg(openedValue * packingSize);
+        } else {
+            setTotalKg(0);
+        }
+    }, [formData.itemId, formData.opened, itemStock, state.items]);
+
+    const openingsForDate = useMemo(() => {
+        return state.originalOpenings
+            .filter(o => o.date === formData.date && o.supplierId === 'SUP-INTERNAL-STOCK')
+            .map(o => {
+                const originalType = state.originalTypes.find(ot => ot.id === o.originalTypeId);
+                return { ...o, originalTypeName: originalType?.name || 'Unknown' };
+            })
+            .reverse();
+    }, [formData.date, state.originalOpenings, state.originalTypes]);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const { date, itemId, opened } = formData;
+        const openedNum = Number(opened);
+        const item = state.items.find(i => i.id === itemId);
+
+        if (!date || !itemId || !opened || openedNum <= 0 || !item) {
+            alert("Please fill all required fields correctly.");
+            return;
+        }
+
+        if (openedNum > availableStock) {
+            alert(`Cannot open ${openedNum} units. Only ${availableStock} are available in stock. This will result in negative stock.`);
+        }
+
+        const DUMMY_SUPPLIER_ID = 'SUP-INTERNAL-STOCK';
+        const dummyOriginalTypeId = `OT-FROM-${item.id}`;
+        let originalType = state.originalTypes.find(ot => ot.id === dummyOriginalTypeId);
+        const batchActions: any[] = [];
+
+        if (!originalType) {
+            originalType = {
+                id: dummyOriginalTypeId,
+                name: `${item.name} (from Stock)`,
+                packingType: item.packingType,
+                packingSize: item.packingType === PackingType.Kg ? 1 : item.baleSize,
+            };
+            batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'originalTypes', data: originalType } });
+        }
+
+        const transactionId = `bale_open_${Date.now()}`;
+        const totalKgOpened = openedNum * originalType.packingSize;
+        const newOpening: OriginalOpening = {
+            id: `oo_${transactionId}`, date, supplierId: DUMMY_SUPPLIER_ID, originalTypeId: dummyOriginalTypeId,
+            opened: openedNum, totalKg: totalKgOpened, batchNumber: `From Stock: ${item.name}`,
+        };
+        batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'originalOpenings', data: newOpening } });
+
+        const negativeProduction: Production = {
+            id: `prod_deduct_${transactionId}`, date, itemId: item.id, quantityProduced: -openedNum,
+        };
+        batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'productions', data: negativeProduction } });
+
+        const value = totalKgOpened * item.avgProductionPrice;
+        if (value > 0) {
+            const voucherId = `JV-${transactionId}`;
+            const description = `Transfer from FG Stock to Raw Material: ${item.name}`;
+            const debitEntry: JournalEntry = { id: `je-d-${voucherId}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'EXP-004', debit: value, credit: 0, description, createdBy: userProfile?.uid };
+            const creditEntry: JournalEntry = { id: `je-c-${voucherId}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'INV-FG-001', debit: 0, credit: value, description, createdBy: userProfile?.uid };
+            batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: debitEntry } });
+            batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: creditEntry } });
+        }
+        
+        if (batchActions.length > 0) {
+            dispatch({ type: 'BATCH_UPDATE', payload: batchActions });
+        }
+
+        showNotification("Bale opening recorded successfully.");
+        setFormData({ ...formData, itemId: '', opened: '' });
+    };
+    
+    const handleDeleteBalesOpening = (openingId: string) => {
+        if (!window.confirm("Are you sure you want to delete this Bales Opening entry? This will reverse the stock deduction and accounting entries.")) {
+            return;
+        }
+
+        const batchActions: any[] = [];
+        batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'originalOpenings', id: openingId } });
+    
+        let transactionId = '';
+        let voucherId = '';
+        let productionId = '';
+    
+        if (openingId.startsWith('oo_bale_open_')) { // New format
+            transactionId = openingId.replace('oo_', '');
+            voucherId = `JV-${transactionId}`;
+            productionId = `prod_deduct_${transactionId}`;
+        } else { // Old format
+            voucherId = `JV-BALE-OPEN-${openingId}`;
+            // Can't reliably find productionId for old format.
+        }
+        
+        // Delete associated Production entry if found
+        if (productionId && state.productions.some(p => p.id === productionId)) {
+            batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'productions', id: productionId } });
+        } else if (!productionId && !openingId.startsWith('oo_bale_open_')) {
+            showNotification("Warning: Could not automatically find and delete the associated stock deduction for this older entry.");
+        }
+    
+        // Delete associated Journal entries
+        const journalEntriesToDelete = state.journalEntries.filter(je => je.voucherId === voucherId);
+        journalEntriesToDelete.forEach(je => {
+            batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'journalEntries', id: je.id } });
+        });
+    
+        if (batchActions.length > 0) {
+            dispatch({ type: 'BATCH_UPDATE', payload: batchActions });
+            showNotification("Bales Opening entry and associated records have been deleted.");
+        }
+    };
+
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-10 gap-8">
+            <div className="md:col-span-3">
+                 <h3 className="text-lg font-bold text-slate-700 mb-4">New Bales Opening</h3>
+                 <form onSubmit={handleSubmit} className="space-y-4">
+                    <div><label className="block text-sm font-medium text-slate-700">Date</label><input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="mt-1 w-full p-2 rounded-md"/></div>
+                    <div><label className="block text-sm font-medium text-slate-700">Item</label><ItemSelector items={state.items} selectedItemId={formData.itemId} onSelect={id => setFormData({...formData, itemId: id})} /></div>
+                    <div><label className="block text-sm font-medium text-slate-700">Available Stock (units)</label><input type="number" value={availableStock} readOnly className="mt-1 w-full p-2 rounded-md bg-slate-200 text-slate-500" /></div>
+                    <div><label className="block text-sm font-medium text-slate-700">Opened (units)</label><input type="number" value={formData.opened} onChange={e => setFormData({...formData, opened: e.target.value})} className="mt-1 w-full p-2 rounded-md" min="1" disabled={!formData.itemId}/></div>
+                    <div><label className="block text-sm font-medium text-slate-700">Total Kg</label><input type="number" value={totalKg} readOnly className="mt-1 w-full p-2 rounded-md bg-slate-200 text-slate-500"/></div>
+                    <button type="submit" className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700">Submit The Entry</button>
+                </form>
+            </div>
+            <div className="md:col-span-7">
+                <h3 className="text-lg font-bold text-slate-700 mb-4">Bale Openings for {formData.date}</h3>
+                <div className="overflow-y-auto border rounded-md max-h-96">
+                    <table className="w-full text-left table-auto text-sm">
+                        <thead className="sticky top-0 bg-slate-100 z-10">
+                            <tr>
+                                <th className="p-2 font-semibold text-slate-600">Item Opened</th>
+                                <th className="p-2 font-semibold text-slate-600 text-right">Opened (Units)</th>
+                                <th className="p-2 font-semibold text-slate-600 text-right">Total Kg</th>
+                                {userProfile?.isAdmin && <th className="p-2 font-semibold text-slate-600 text-right">Actions</th>}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {openingsForDate.map(op => (
+                                <tr key={op.id} className="border-b hover:bg-slate-50">
+                                    <td className="p-2 text-slate-700">{op.originalTypeName}</td>
+                                    <td className="p-2 text-slate-700 text-right font-medium">{op.opened.toLocaleString()}</td>
+                                    <td className="p-2 text-slate-700 text-right">{op.totalKg.toLocaleString()}</td>
+                                    {userProfile?.isAdmin && (
+                                        <td className="p-2 text-right">
+                                            <button onClick={() => handleDeleteBalesOpening(op.id)} className="text-red-600 hover:text-red-800 text-xs font-semibold">Remove</button>
+                                        </td>
+                                    )}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                     {openingsForDate.length === 0 && <div className="text-center text-slate-500 py-8">No bale openings for this date yet.</div>}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const ProductionForm: React.FC<{ 
     showNotification: (msg: string) => void;
     requestSetupItem: () => void;
@@ -662,7 +849,7 @@ const ProductionForm: React.FC<{
                                     <th className="p-2 font-semibold text-slate-600">Category</th>
                                     <th className="p-2 font-semibold text-slate-600 text-right">Qty</th>
                                     <th className="p-2 font-semibold text-slate-600 text-right">Bale Nos.</th>
-                                    {userProfile?.isAdmin && <th className="p-2 font-semibold text-slate-600 text-right">Actions</th>}
+                                    {(userProfile?.isAdmin || userProfile?.name?.toLowerCase().includes('tanveer')) && <th className="p-2 font-semibold text-slate-600 text-right">Actions</th>}
                                 </tr>
                             </thead>
                             <tbody>
@@ -672,7 +859,7 @@ const ProductionForm: React.FC<{
                                         <td className="p-2 text-slate-700">{p.itemCategory}</td>
                                         <td className="p-2 text-slate-700 text-right font-medium">{p.quantityProduced.toLocaleString()}</td>
                                         <td className="p-2 text-slate-700 text-right font-mono text-xs">{p.startBaleNumber ? `${p.startBaleNumber}-${p.endBaleNumber}` : '-'}</td>
-                                        {userProfile?.isAdmin && (
+                                        {(userProfile?.isAdmin || userProfile?.name?.toLowerCase().includes('tanveer')) && (
                                             <td className="p-2 text-right">
                                                 <button onClick={() => handleRemoveFromList(p.id)} className="text-red-600 hover:text-red-800 text-xs font-semibold">Remove</button>
                                             </td>
@@ -1582,6 +1769,7 @@ interface DataEntryProps {
 const DataEntryModule: React.FC<DataEntryProps> = ({ setModule, requestSetupItem, userProfile, initialView }) => {
     const [view, setView] = useState<FormView>('opening');
     const [notification, setNotification] = useState<string | null>(null);
+    const [openingView, setOpeningView] = useState<'original' | 'bales'>('original');
     
     const dataEntrySubModules = [
         { key: 'opening', label: 'Original Opening' },
@@ -1605,9 +1793,22 @@ const DataEntryModule: React.FC<DataEntryProps> = ({ setModule, requestSetupItem
         setNotification(message);
     };
 
+    const getOpeningButtonClass = (v: 'original' | 'bales') => 
+        `px-4 py-2 rounded-md transition-colors text-sm font-medium ${openingView === v ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`;
+
     const renderView = () => {
         switch (view) {
-            case 'opening': return <OriginalOpeningForm showNotification={showNotification} userProfile={userProfile} />;
+            case 'opening': 
+                return (
+                    <div className="space-y-4">
+                        <div className="flex items-center space-x-2 border-b pb-4">
+                            <button onClick={() => setOpeningView('original')} className={getOpeningButtonClass('original')}>Supplier Opening</button>
+                            <button onClick={() => setOpeningView('bales')} className={getOpeningButtonClass('bales')}>Bales Opening</button>
+                        </div>
+                        {openingView === 'original' && <OriginalOpeningForm showNotification={showNotification} userProfile={userProfile} />}
+                        {openingView === 'bales' && <BalesOpeningForm showNotification={showNotification} userProfile={userProfile} />}
+                    </div>
+                );
             case 'production': return <ProductionForm showNotification={showNotification} requestSetupItem={requestSetupItem} userProfile={userProfile} />;
             case 'purchases': return <PurchasesModule showNotification={showNotification} userProfile={userProfile} />;
             case 'sales': return <SalesInvoiceModule setModule={setModule} userProfile={userProfile} />;

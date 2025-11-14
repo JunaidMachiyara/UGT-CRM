@@ -250,7 +250,7 @@ const App: React.FC = () => {
     const [activeModule, setActiveModule] = useState<Module>('dashboard');
     const [activeSubView, setActiveSubView] = useState<string | null>(null);
     const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-    const { userProfile, authLoading, saveStatus } = useData();
+    const { state, dispatch, userProfile, authLoading, saveStatus } = useData();
     const [unreadNotification, setUnreadNotification] = useState<string | null>(null);
     const unreadSenderNames = useUnreadMessages(userProfile);
     const unreadMessageCount = useUnreadMessageCount(userProfile);
@@ -363,7 +363,6 @@ const App: React.FC = () => {
             }
         };
     }, [navigationHistory, showEscapeConfirm]);
-
 
     const handleNewItemSaved = () => {
         setNotification({ msg: "Item created successfully!", type: 'success' });
