@@ -429,6 +429,7 @@ const BalesOpeningForm: React.FC<{ showNotification: (msg: string) => void; user
     const [formData, setFormData] = useState({ date: new Date().toISOString().split('T')[0], itemId: '', opened: '' });
     const [totalKg, setTotalKg] = useState(0);
     const [availableStock, setAvailableStock] = useState(0);
+    const [stagedBaleOpenings, setStagedBaleOpenings] = useState<(OriginalOpening & { originalTypeName: string })[]>([]);
 
     const itemStock = useMemo(() => {
         const stockMap = new Map<string, number>();
@@ -453,14 +454,24 @@ const BalesOpeningForm: React.FC<{ showNotification: (msg: string) => void; user
     }, [formData.itemId, formData.opened, itemStock, state.items]);
 
     const openingsForDate = useMemo(() => {
-        return state.originalOpenings
+        const posted = state.originalOpenings
             .filter(o => o.date === formData.date && o.supplierId === 'SUP-INTERNAL-STOCK')
             .map(o => {
                 const originalType = state.originalTypes.find(ot => ot.id === o.originalTypeId);
-                return { ...o, originalTypeName: originalType?.name || 'Unknown' };
-            })
-            .reverse();
-    }, [formData.date, state.originalOpenings, state.originalTypes]);
+                return { ...o, originalTypeName: originalType?.name || 'Unknown', status: 'Posted' as const };
+            });
+        
+        const staged = stagedBaleOpenings.map(o => ({...o, status: 'Staged' as const }));
+
+        // Combine, sort by status (Staged first), then by ID (latest first)
+        return [...staged, ...posted].sort((a, b) => {
+            if (a.status === 'Staged' && b.status !== 'Staged') return -1;
+            if (a.status !== 'Staged' && b.status === 'Staged') return 1;
+            // For items with the same status, sort by ID descending (newer first)
+            return b.id.localeCompare(a.id);
+        });
+    }, [formData.date, state.originalOpenings, state.originalTypes, stagedBaleOpenings]);
+
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -476,93 +487,163 @@ const BalesOpeningForm: React.FC<{ showNotification: (msg: string) => void; user
         if (openedNum > availableStock) {
             alert(`Cannot open ${openedNum} units. Only ${availableStock} are available in stock. This will result in negative stock.`);
         }
-
+        
         const DUMMY_SUPPLIER_ID = 'SUP-INTERNAL-STOCK';
         const dummyOriginalTypeId = `OT-FROM-${item.id}`;
-        let originalType = state.originalTypes.find(ot => ot.id === dummyOriginalTypeId);
-        const batchActions: any[] = [];
 
-        if (!originalType) {
-            originalType = {
-                id: dummyOriginalTypeId,
-                name: `${item.name} (from Stock)`,
-                packingType: item.packingType,
-                packingSize: item.packingType === PackingType.Kg ? 1 : item.baleSize,
-            };
-            batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'originalTypes', data: originalType } });
-        }
-
-        const transactionId = `bale_open_${Date.now()}`;
-        const totalKgOpened = openedNum * originalType.packingSize;
-        const newOpening: OriginalOpening = {
-            id: `oo_${transactionId}`, date, supplierId: DUMMY_SUPPLIER_ID, originalTypeId: dummyOriginalTypeId,
-            opened: openedNum, totalKg: totalKgOpened, batchNumber: `From Stock: ${item.name}`,
+        const newStagedOpening: OriginalOpening & { originalTypeName: string } = {
+            id: `staged_${Date.now()}`, // Temporary ID
+            date,
+            supplierId: DUMMY_SUPPLIER_ID,
+            originalTypeId: dummyOriginalTypeId,
+            opened: openedNum,
+            totalKg: totalKg,
+            batchNumber: `From Stock: ${item.name}`,
+            originalTypeName: `${item.name} (from Stock)`, // For display
         };
-        batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'originalOpenings', data: newOpening } });
 
-        const negativeProduction: Production = {
-            id: `prod_deduct_${transactionId}`, date, itemId: item.id, quantityProduced: -openedNum,
-        };
-        batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'productions', data: negativeProduction } });
-
-        const value = totalKgOpened * item.avgProductionPrice;
-        if (value > 0) {
-            const voucherId = `JV-${transactionId}`;
-            const description = `Transfer from FG Stock to Raw Material: ${item.name}`;
-            const debitEntry: JournalEntry = { id: `je-d-${voucherId}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'EXP-004', debit: value, credit: 0, description, createdBy: userProfile?.uid };
-            const creditEntry: JournalEntry = { id: `je-c-${voucherId}`, voucherId, date, entryType: JournalEntryType.Journal, account: 'INV-FG-001', debit: 0, credit: value, description, createdBy: userProfile?.uid };
-            batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: debitEntry } });
-            batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: creditEntry } });
-        }
-        
-        if (batchActions.length > 0) {
-            dispatch({ type: 'BATCH_UPDATE', payload: batchActions });
-        }
-
-        showNotification("Bale opening recorded successfully.");
+        setStagedBaleOpenings(prev => [...prev, newStagedOpening]);
+        showNotification("Bale opening added to list. Press 'Post All Staged Openings' to finalize.");
         setFormData({ ...formData, itemId: '', opened: '' });
+    };
+
+    const handleRemoveStaged = (stagedId: string) => {
+        setStagedBaleOpenings(prev => prev.filter(o => o.id !== stagedId));
+        showNotification("Staged entry removed.");
     };
     
     const handleDeleteBalesOpening = (openingId: string) => {
-        if (!window.confirm("Are you sure you want to delete this Bales Opening entry? This will reverse the stock deduction and accounting entries.")) {
+        if (!window.confirm("Are you sure you want to permanently delete this posted entry and all its associated stock and accounting transactions? This is an admin-only action and cannot be undone.")) {
             return;
         }
-
+    
+        const openingEntry = state.originalOpenings.find(o => o.id === openingId);
+        if (!openingEntry) {
+            showNotification("Error: Opening entry not found.");
+            return;
+        }
+    
         const batchActions: any[] = [];
-        batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'originalOpenings', id: openingId } });
+        const potentialTransactionIds = new Set<string>();
     
-        let transactionId = '';
-        let voucherId = '';
-        let productionId = '';
-    
-        if (openingId.startsWith('oo_bale_open_')) { // New format
-            transactionId = openingId.replace('oo_', '');
-            voucherId = `JV-${transactionId}`;
-            productionId = `prod_deduct_${transactionId}`;
-        } else { // Old format
-            voucherId = `JV-BALE-OPEN-${openingId}`;
-            // Can't reliably find productionId for old format.
+        // Step 1: Gather all possible linking IDs from the opening entry itself.
+        potentialTransactionIds.add(openingId);
+        if (openingEntry.transactionId) {
+            potentialTransactionIds.add(openingEntry.transactionId);
         }
-        
-        // Delete associated Production entry if found
-        if (productionId && state.productions.some(p => p.id === productionId)) {
-            batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'productions', id: productionId } });
-        } else if (!productionId && !openingId.startsWith('oo_bale_open_')) {
-            showNotification("Warning: Could not automatically find and delete the associated stock deduction for this older entry.");
+        if (openingId.startsWith('oo_')) {
+            potentialTransactionIds.add(openingId.substring(3));
         }
     
-        // Delete associated Journal entries
-        const journalEntriesToDelete = state.journalEntries.filter(je => je.voucherId === voucherId);
+        // Step 2: Find the associated production entry using any of the potential IDs.
+        let productionEntryToDelete: Production | undefined;
+        for (const id of potentialTransactionIds) {
+            productionEntryToDelete = state.productions.find(p => p.id === `prod_deduct_${id}`);
+            if (productionEntryToDelete) break;
+        }
+    
+        if (productionEntryToDelete) {
+            batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'productions', id: productionEntryToDelete.id } });
+        }
+    
+        // Step 3: Find all associated journal entries using all potential IDs as voucher IDs.
+        const journalEntriesToDelete = state.journalEntries.filter(je => {
+            for (const id of potentialTransactionIds) {
+                if (
+                    je.voucherId === id ||
+                    je.voucherId === `JV-${id}` ||
+                    je.voucherId.includes(id) 
+                ) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    
         journalEntriesToDelete.forEach(je => {
             batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'journalEntries', id: je.id } });
         });
     
-        if (batchActions.length > 0) {
+        // Step 4: Delete the dummy OriginalType if it exists.
+        if (openingEntry.originalTypeId && openingEntry.originalTypeId.startsWith('OT-FROM-')) {
+            const typeExists = state.originalTypes.some(ot => ot.id === openingEntry.originalTypeId);
+            if (typeExists) {
+                batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'originalTypes', id: openingEntry.originalTypeId } });
+            }
+        }
+    
+        // Step 5: Delete the opening entry itself.
+        batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'originalOpenings', id: openingId } });
+    
+        // Step 6: Execute the batch dispatch.
+        if (batchActions.length > 1) {
             dispatch({ type: 'BATCH_UPDATE', payload: batchActions });
-            showNotification("Bales Opening entry and associated records have been deleted.");
+            showNotification(`Entry ${openingId} and ${batchActions.length - 1} associated records have been deleted.`);
+        } else {
+            dispatch({ type: 'DELETE_ENTITY', payload: { entity: 'originalOpenings', id: openingId } });
+            showNotification(`Warning: Only the opening entry was deleted. Associated records not found.`);
         }
     };
 
+    const handlePostAllStaged = () => {
+        if (stagedBaleOpenings.length === 0) return;
+
+        const batchActions: any[] = [];
+        
+        stagedBaleOpenings.forEach(stagedOpening => {
+            const item = state.items.find(i => stagedOpening.originalTypeId === `OT-FROM-${i.id}`);
+            if (!item) return;
+
+            let originalType = state.originalTypes.find(ot => ot.id === stagedOpening.originalTypeId);
+            if (!originalType) {
+                originalType = {
+                    id: stagedOpening.originalTypeId,
+                    name: `${item.name} (from Stock)`,
+                    packingType: item.packingType,
+                    packingSize: item.packingType === PackingType.Kg ? 1 : item.baleSize,
+                };
+                batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'originalTypes', data: originalType } });
+            }
+
+            const transactionId = `bale_open_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+            const newOpening: OriginalOpening = {
+                id: `oo_${transactionId}`,
+                date: stagedOpening.date,
+                supplierId: stagedOpening.supplierId,
+                originalTypeId: stagedOpening.originalTypeId,
+                opened: stagedOpening.opened,
+                totalKg: stagedOpening.totalKg,
+                batchNumber: stagedOpening.batchNumber,
+                transactionId: transactionId,
+            };
+            batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'originalOpenings', data: newOpening } });
+
+            const negativeProduction: Production = {
+                id: `prod_deduct_${transactionId}`,
+                date: stagedOpening.date,
+                itemId: item.id,
+                quantityProduced: -stagedOpening.opened,
+            };
+            batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'productions', data: negativeProduction } });
+
+            const value = stagedOpening.totalKg * item.avgProductionPrice;
+            if (value > 0) {
+                const voucherId = `JV-${transactionId}`;
+                const description = `Transfer from FG Stock to Raw Material: ${item.name}`;
+                const debitEntry: JournalEntry = { id: `je-d-${voucherId}`, voucherId, date: stagedOpening.date, entryType: JournalEntryType.Journal, account: 'EXP-004', debit: value, credit: 0, description, createdBy: userProfile?.uid };
+                const creditEntry: JournalEntry = { id: `je-c-${voucherId}`, voucherId, date: stagedOpening.date, entryType: JournalEntryType.Journal, account: 'INV-FG-001', debit: 0, credit: value, description, createdBy: userProfile?.uid };
+                batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: debitEntry } });
+                batchActions.push({ type: 'ADD_ENTITY', payload: { entity: 'journalEntries', data: creditEntry } });
+            }
+        });
+        
+        if (batchActions.length > 0) {
+            dispatch({ type: 'BATCH_UPDATE', payload: batchActions });
+        }
+
+        showNotification(`${stagedBaleOpenings.length} bale opening(s) posted successfully.`);
+        setStagedBaleOpenings([]);
+    };
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-10 gap-8">
@@ -574,7 +655,7 @@ const BalesOpeningForm: React.FC<{ showNotification: (msg: string) => void; user
                     <div><label className="block text-sm font-medium text-slate-700">Available Stock (units)</label><input type="number" value={availableStock} readOnly className="mt-1 w-full p-2 rounded-md bg-slate-200 text-slate-500" /></div>
                     <div><label className="block text-sm font-medium text-slate-700">Opened (units)</label><input type="number" value={formData.opened} onChange={e => setFormData({...formData, opened: e.target.value})} className="mt-1 w-full p-2 rounded-md" min="1" disabled={!formData.itemId}/></div>
                     <div><label className="block text-sm font-medium text-slate-700">Total Kg</label><input type="number" value={totalKg} readOnly className="mt-1 w-full p-2 rounded-md bg-slate-200 text-slate-500"/></div>
-                    <button type="submit" className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700">Submit The Entry</button>
+                    <button type="submit" className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add to List</button>
                 </form>
             </div>
             <div className="md:col-span-7">
@@ -586,18 +667,30 @@ const BalesOpeningForm: React.FC<{ showNotification: (msg: string) => void; user
                                 <th className="p-2 font-semibold text-slate-600">Item Opened</th>
                                 <th className="p-2 font-semibold text-slate-600 text-right">Opened (Units)</th>
                                 <th className="p-2 font-semibold text-slate-600 text-right">Total Kg</th>
+                                <th className="p-2 font-semibold text-slate-600 text-right">Status</th>
                                 {userProfile?.isAdmin && <th className="p-2 font-semibold text-slate-600 text-right">Actions</th>}
                             </tr>
                         </thead>
                         <tbody>
                             {openingsForDate.map(op => (
-                                <tr key={op.id} className="border-b hover:bg-slate-50">
+                                <tr key={op.id} className={`border-b hover:bg-slate-50 ${op.status === 'Staged' ? 'bg-yellow-50' : ''}`}>
                                     <td className="p-2 text-slate-700">{op.originalTypeName}</td>
                                     <td className="p-2 text-slate-700 text-right font-medium">{op.opened.toLocaleString()}</td>
                                     <td className="p-2 text-slate-700 text-right">{op.totalKg.toLocaleString()}</td>
+                                    <td className="p-2 text-right">
+                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${op.status === 'Staged' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+                                            {op.status}
+                                        </span>
+                                    </td>
                                     {userProfile?.isAdmin && (
                                         <td className="p-2 text-right">
-                                            <button onClick={() => handleDeleteBalesOpening(op.id)} className="text-red-600 hover:text-red-800 text-xs font-semibold">Remove</button>
+                                            {op.status === 'Staged' ? (
+                                                <button onClick={() => handleRemoveStaged(op.id)} className="text-red-600 hover:text-red-800 text-xs font-semibold">Remove</button>
+                                            ) : op.status === 'Posted' ? (
+                                                <button onClick={() => handleDeleteBalesOpening(op.id)} className="text-red-600 hover:text-red-800 text-xs font-semibold">Remove</button>
+                                            ) : (
+                                                <span className="text-xs text-slate-400">-</span>
+                                            )}
                                         </td>
                                     )}
                                 </tr>
@@ -605,6 +698,15 @@ const BalesOpeningForm: React.FC<{ showNotification: (msg: string) => void; user
                         </tbody>
                     </table>
                      {openingsForDate.length === 0 && <div className="text-center text-slate-500 py-8">No bale openings for this date yet.</div>}
+                </div>
+                 <div className="mt-4 flex justify-end">
+                    <button 
+                        onClick={handlePostAllStaged} 
+                        disabled={stagedBaleOpenings.length === 0}
+                        className="px-4 py-2 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+                    >
+                        Post All Staged Openings ({stagedBaleOpenings.length})
+                    </button>
                 </div>
             </div>
         </div>
@@ -1772,12 +1874,12 @@ const DataEntryModule: React.FC<DataEntryProps> = ({ setModule, requestSetupItem
     const [openingView, setOpeningView] = useState<'original' | 'bales'>('original');
     
     const dataEntrySubModules = [
-        { key: 'opening', label: 'Original Opening' },
-        { key: 'production', label: 'Production' },
+        { key: 'opening', label: 'Original Opening', shortcut: 'Alt + O' },
+        { key: 'production', label: 'Production', shortcut: 'Alt + P' },
         { key: 'purchases', label: 'Purchases' },
-        { key: 'sales', label: 'Sales Invoice' },
+        { key: 'sales', label: 'Sales Invoice', shortcut: 'Alt + S' },
         { key: 'stockLot', label: 'Bundle Purchase' },
-        { key: 'ongoing', label: 'Ongoing Orders' },
+        { key: 'ongoing', label: 'Ongoing Orders', shortcut: 'Alt + U' },
         { key: 'rebaling', label: 'Re-baling' },
         { key: 'directSales', label: 'Direct Sales' },
         { key: 'offloading', label: 'Container Off-loading' }
@@ -1831,6 +1933,7 @@ const DataEntryModule: React.FC<DataEntryProps> = ({ setModule, requestSetupItem
                             key={module.key}
                             onClick={() => setView(module.key as FormView)}
                             className={`px-4 py-2 rounded-md transition-colors text-sm font-medium ${view === module.key ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+                            title={module.shortcut ? `Shortcut: ${module.shortcut}` : ''}
                         >
                             {module.label}
                         </button>

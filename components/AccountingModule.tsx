@@ -546,8 +546,8 @@ const AccountingModule: React.FC<{ userProfile: UserProfile | null; initialView?
             {notification && <Notification message={notification} onTimeout={() => setNotification(null)} />}
              <div className="bg-white p-4 rounded-lg shadow-md flex items-center space-x-2">
                 <h2 className="text-xl font-bold text-slate-700 mr-4">Accounting</h2>
-                <button onClick={() => setSubModule('new')} className={getButtonClass('new')}>New Voucher</button>
-                <button onClick={() => setSubModule('update')} className={getButtonClass('update')}>Update / View Vouchers</button>
+                <button onClick={() => setSubModule('new')} className={getButtonClass('new')} title="Shortcut: Alt + N">New Voucher</button>
+                <button onClick={() => setSubModule('update')} className={getButtonClass('update')} title="Shortcut: Alt + E">Update / View Vouchers</button>
                 <button onClick={() => setSubModule('packing')} className={getButtonClass('packing')}>Packing Material</button>
                 <button onClick={() => setSubModule('fixedAssets')} className={getButtonClass('fixedAssets')}>Fixed Assets</button>
             </div>

@@ -253,6 +253,7 @@ export interface OriginalOpening {
     opened: number;
     totalKg: number;
     isPosted?: boolean;
+    transactionId?: string;
 }
 
 export interface OriginalPurchased {
@@ -574,6 +575,33 @@ export interface DepreciationEntry {
     voucherId: string;
 }
 
+export interface GuaranteeCheque {
+    id: number; // S.No
+    date: string;
+    boeNo: string;
+    destination: string;
+    shipper: string;
+    stock: string;
+    weight: number;
+    amount: number;
+    containerNo: string;
+    chequeDate: string;
+    chequeNo: string;
+    chequeAmount: number;
+    status: 'Submitted' | 'Returned' | 'Cashed';
+}
+
+export interface CustomsDocument {
+    id: string;
+    fileName: string;
+    fileType: string;
+    fileURL: string;
+    description: string;
+    uploadDate: string;
+    uploadedBy: string;
+    uploaderId: string;
+}
+
 export interface AppState {
     customers: Customer[];
     suppliers: Supplier[];
@@ -622,6 +650,8 @@ export interface AppState {
     packingMaterialItems: PackingMaterialItem[];
     packingMaterialPurchases: PackingMaterialPurchase[];
     logisticsEntries: LogisticsEntry[];
+    guaranteeCheques: GuaranteeCheque[];
+    customsDocuments: CustomsDocument[];
     favoriteCombinations: FavoriteCombination[];
     nextInvoiceNumber: number;
     nextOngoingOrderNumber: number;
@@ -630,6 +660,7 @@ export interface AppState {
     nextLogisticsSNo: number;
     nextHRTaskId: number;
     nextHREnquiryId: number;
+    nextGuaranteeChequeSNo: number;
     journalEntries: JournalEntry[];
     nextReceiptVoucherNumber: number;
     nextPaymentVoucherNumber: number;
@@ -645,4 +676,4 @@ export interface AppState {
     plannerExpenseAccountIds?: string[];
 }
 
-export type Module = 'analytics' | 'dashboard' | 'setup' | 'dataEntry' | 'accounting' | 'reports' | 'posting' | 'admin' | 'logistics' | 'hr' | 'test' | 'chat';
+export type Module = 'analytics' | 'dashboard' | 'setup' | 'dataEntry' | 'accounting' | 'reports' | 'posting' | 'admin' | 'logistics' | 'hr' | 'test' | 'chat' | 'customs';

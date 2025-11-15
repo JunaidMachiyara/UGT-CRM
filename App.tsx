@@ -8,8 +8,9 @@ import ReportsModule from './components/ReportsModule.tsx';
 import PostingModule from './components/PostingModule.tsx';
 import LogisticsModule from './components/LogisticsModule.tsx';
 import AdminModule from './components/AdminModule.tsx';
+import CustomsModule from './components/CustomsModule.tsx';
 import { useData, auth, db, allPermissions } from './context/DataContext.tsx';
-import { Module, UserProfile } from './types.ts';
+import { Module, UserProfile, OriginalOpening, Production } from './types.ts';
 import Modal from './components/ui/Modal.tsx';
 import TestPage from './components/TestPage.tsx';
 import ChatModule from './components/ChatModule.tsx';
@@ -244,7 +245,7 @@ const LoginScreen: React.FC<{ setNotification: (n: any) => void; }> = ({ setNoti
     );
 };
 
-const mainModules: Module[] = ['dashboard', 'setup', 'dataEntry', 'accounting', 'reports', 'posting', 'logistics', 'hr', 'admin', 'chat'];
+const mainModules: Module[] = ['dashboard', 'setup', 'dataEntry', 'accounting', 'reports', 'posting', 'logistics', 'hr', 'customs', 'admin', 'chat'];
 
 const App: React.FC = () => {
     const [activeModule, setActiveModule] = useState<Module>('dashboard');
@@ -259,10 +260,96 @@ const App: React.FC = () => {
     const [isNewItemModalOpen, setIsNewItemModalOpen] = useState<boolean>(false);
     const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
 
-    const [navigationHistory, setNavigationHistory] = useState<Module[]>([]);
+    const [navigationHistory, setNavigationHistory] = useState<Array<{ module: Module; subView: string | null }>>([]);
     const prevModuleRef = useRef<Module>();
+    const prevSubViewRef = useRef<string | null>();
+    const isNavigatingBackRef = useRef(false);
     const [showEscapeConfirm, setShowEscapeConfirm] = useState(false);
     const escapeConfirmTimeoutRef = useRef<number | null>(null);
+    const cleanupRan = useRef(false); // Ref to ensure it runs only once
+
+    // ONE-TIME MANUAL DELETION SCRIPT FOR DEC 14, 2025 ENTRIES
+    // TODO: Remove this one-time cleanup script in the next deployment.
+    useEffect(() => {
+        if (!state || cleanupRan.current || !state.originalOpenings.length) {
+            return;
+        }
+    
+        const targetDate = '2025-12-14';
+        const entriesToDelete = state.originalOpenings
+            .filter(o => o.date === targetDate)
+            .slice(0, 2); 
+    
+        if (entriesToDelete.length > 0) {
+            console.log(`Found ${entriesToDelete.length} entries from ${targetDate} to delete.`);
+            const batchActions: any[] = [];
+    
+            const deleteBalesOpeningAssociations = (openingEntry: OriginalOpening) => {
+                const potentialTransactionIds = new Set<string>();
+                potentialTransactionIds.add(openingEntry.id);
+                if (openingEntry.transactionId) {
+                    potentialTransactionIds.add(openingEntry.transactionId);
+                }
+                if (openingEntry.id.startsWith('oo_')) {
+                    potentialTransactionIds.add(openingEntry.id.substring(3));
+                }
+            
+                let productionEntryToDelete: Production | undefined;
+                for (const id of potentialTransactionIds) {
+                    productionEntryToDelete = state.productions.find(p => p.id === `prod_deduct_${id}`);
+                    if (productionEntryToDelete) break;
+                }
+            
+                if (productionEntryToDelete) {
+                    batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'productions', id: productionEntryToDelete.id } });
+                }
+            
+                const journalEntriesToDelete = state.journalEntries.filter(je => {
+                    for (const id of potentialTransactionIds) {
+                        if ( je.voucherId === `JV-${id}` || je.voucherId.includes(id) ) {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+            
+                journalEntriesToDelete.forEach(je => {
+                    batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'journalEntries', id: je.id } });
+                });
+            
+                if (openingEntry.originalTypeId && openingEntry.originalTypeId.startsWith('OT-FROM-')) {
+                     batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'originalTypes', id: openingEntry.originalTypeId } });
+                }
+            };
+    
+            const deleteOriginalOpeningAssociations = (openingEntry: OriginalOpening) => {
+                 const journalVoucherId = `AUTO-OPEN-${openingEntry.id}`;
+                 const jeToDelete = state.journalEntries.filter(je => je.voucherId === journalVoucherId);
+                 jeToDelete.forEach(je => {
+                    batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'journalEntries', id: je.id } });
+                 });
+            };
+    
+            entriesToDelete.forEach(entry => {
+                if (entry.supplierId === 'SUP-INTERNAL-STOCK') {
+                     deleteBalesOpeningAssociations(entry);
+                } else {
+                    deleteOriginalOpeningAssociations(entry);
+                }
+                // Finally, add the main entry itself for deletion
+                batchActions.push({ type: 'DELETE_ENTITY', payload: { entity: 'originalOpenings', id: entry.id } });
+            });
+    
+            if (batchActions.length > 0) {
+                dispatch({ type: 'BATCH_UPDATE', payload: batchActions });
+                console.log(`Dispatched ${batchActions.length} actions to delete entries and their associations.`);
+            }
+        } else {
+             console.log(`No entries found for deletion on date: ${targetDate}`);
+        }
+    
+        cleanupRan.current = true;
+    }, [state, dispatch]);
 
      useEffect(() => {
         if (unreadSenderNames.length > 0) {
@@ -274,11 +361,16 @@ const App: React.FC = () => {
     }, [unreadSenderNames]);
 
     useEffect(() => {
-        if (prevModuleRef.current && prevModuleRef.current !== activeModule) {
-            setNavigationHistory(prev => [...prev, prevModuleRef.current!]);
+        if (isNavigatingBackRef.current) {
+            isNavigatingBackRef.current = false;
+        } else if (prevModuleRef.current) {
+            const prevState = { module: prevModuleRef.current, subView: prevSubViewRef.current };
+            setNavigationHistory(prev => [...prev, prevState]);
         }
         prevModuleRef.current = activeModule;
-    }, [activeModule]);
+        prevSubViewRef.current = activeSubView;
+    }, [activeModule, activeSubView]);
+
 
     const handleNavigation = (module: Module, subView?: string) => {
         if (activeModule !== module) {
@@ -289,20 +381,40 @@ const App: React.FC = () => {
     
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
+            const target = event.target as HTMLElement;
+            // Ignore shortcuts if user is typing in an input/textarea/select
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
+                return;
+            }
+
+            // --- Function Key Navigation ---
+            const functionKeyMap: { [key: string]: Module } = {
+                'F1': 'analytics', 'F2': 'dashboard', 'F3': 'setup', 'F4': 'dataEntry',
+                'F5': 'accounting', 'F6': 'reports', 'F7': 'posting', 'F8': 'logistics',
+                'F9': 'hr', 'F10': 'customs', 'F11': 'admin', 'F12': 'chat'
+            };
+
+            if (functionKeyMap[event.key]) {
+                event.preventDefault();
+                handleNavigation(functionKeyMap[event.key]);
+                return;
+            }
+            
+            // --- Escape Key for Back Navigation ---
             if (event.key === 'Escape') {
-                const target = event.target as HTMLElement;
-                if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
-                    return;
-                }
-    
+                if (event.defaultPrevented) { return; } // Handled by a child (modal or form)
+
                 if (showEscapeConfirm) {
                     if (navigationHistory.length > 0) {
                         event.preventDefault();
                         const newHistory = [...navigationHistory];
-                        const lastModule = newHistory.pop();
-                        if (lastModule) {
+                        const lastState = newHistory.pop();
+                        
+                        if (lastState) {
+                            isNavigatingBackRef.current = true;
                             setNavigationHistory(newHistory);
-                            setActiveModule(lastModule);
+                            setActiveModule(lastState.module);
+                            setActiveSubView(lastState.subView);
                         }
                     }
                     setShowEscapeConfirm(false);
@@ -325,30 +437,14 @@ const App: React.FC = () => {
                 return; 
             }
             
-            if (['INPUT', 'TEXTAREA', 'SELECT'].includes((event.target as HTMLElement).tagName)) {
-                return;
-            }
-
+            // --- Alt + Key for Sub-menu Navigation ---
             if (event.altKey) {
                 event.preventDefault();
                 switch (event.key.toLowerCase()) {
-                    case '1': handleNavigation('analytics'); break;
-                    case '2': handleNavigation('dashboard'); break;
-                    case '3': handleNavigation('setup'); break;
-                    case '4': handleNavigation('dataEntry'); break;
-                    case '5': handleNavigation('accounting'); break;
-                    case '6': handleNavigation('reports'); break;
-                    case '7': handleNavigation('posting'); break;
-                    case '8': handleNavigation('logistics'); break;
-                    case '9': handleNavigation('hr'); break;
-                    case '0': handleNavigation('admin'); break;
-                    case 'c': handleNavigation('chat'); break;
-                    
                     case 'o': handleNavigation('dataEntry', 'opening'); break;
                     case 'p': handleNavigation('dataEntry', 'production'); break;
                     case 's': handleNavigation('dataEntry', 'sales'); break;
                     case 'u': handleNavigation('dataEntry', 'ongoing'); break; 
-                    
                     case 'n': handleNavigation('accounting', 'new'); break;
                     case 'e': handleNavigation('accounting', 'update'); break;
                 }
@@ -420,6 +516,7 @@ const App: React.FC = () => {
             case 'posting': return <PostingModule setModule={(m) => handleNavigation(m)} userProfile={userProfile} />;
             case 'logistics': return <LogisticsModule userProfile={userProfile} />;
             case 'hr': return <HRModule userProfile={userProfile} initialView={activeSubView} />;
+            case 'customs': return <CustomsModule userProfile={userProfile} />;
             case 'admin': return <AdminModule setNotification={setNotification} />;
             case 'test': return <TestPage />;
             case 'chat': return <ChatModule />;
@@ -479,17 +576,18 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex items-center space-x-4">
                         <nav className="flex space-x-1 bg-blue-800 p-1 rounded-lg">
-                            <NavButton module="analytics" label="Analytics" shortcut="Alt + 1" />
-                            <NavButton module="dashboard" label="Dashboard" shortcut="Alt + 2" />
-                            <NavButton module="setup" label="Setup" shortcut="Alt + 3" />
-                            <NavButton module="dataEntry" label="Data Entry" shortcut="Alt + 4" />
-                            <NavButton module="accounting" label="Accounting" shortcut="Alt + 5" />
-                            <NavButton module="reports" label="Reports" shortcut="Alt + 6" />
-                            <NavButton module="posting" label="Posting" shortcut="Alt + 7" />
-                            <NavButton module="logistics" label="Logistics" shortcut="Alt + 8" />
-                            <NavButton module="hr" label="HR" shortcut="Alt + 9" />
-                            <NavButton module="admin" label="Admin" shortcut="Alt + 0" />
-                            <NavButton module="chat" label="Chat" shortcut="Alt + C" unreadCount={unreadMessageCount} />
+                            <NavButton module="analytics" label="Analytics" shortcut="F1" />
+                            <NavButton module="dashboard" label="Dashboard" shortcut="F2" />
+                            <NavButton module="setup" label="Setup" shortcut="F3" />
+                            <NavButton module="dataEntry" label="Data Entry" shortcut="F4" />
+                            <NavButton module="accounting" label="Accounting" shortcut="F5" />
+                            <NavButton module="reports" label="Reports" shortcut="F6" />
+                            <NavButton module="posting" label="Posting" shortcut="F7" />
+                            <NavButton module="logistics" label="Logistics" shortcut="F8" />
+                            <NavButton module="hr" label="HR" shortcut="F9" />
+                            <NavButton module="customs" label="Customs" shortcut="F10" />
+                            <NavButton module="admin" label="Admin" shortcut="F11" />
+                            <NavButton module="chat" label="Chat" shortcut="F12" unreadCount={unreadMessageCount} />
                         </nav>
                         <div className="flex items-center space-x-3 border-l border-blue-500 pl-4">
                             <div className="w-36 text-right">
@@ -536,24 +634,24 @@ const App: React.FC = () => {
             <Modal isOpen={isHelpModalOpen} onClose={() => setIsHelpModalOpen(false)} title="Keyboard Shortcuts" size="2xl">
                 <div className="space-y-6 text-slate-700">
                     <div>
-                        <h3 className="text-lg font-semibold mb-2 text-slate-800">Global Navigation</h3>
+                        <h3 className="text-lg font-semibold mb-2 text-slate-800">Main Navigation</h3>
                         <div className="grid grid-cols-2 gap-x-8 gap-y-2">
-                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 1</kbd> &rarr; Analytics</p>
-                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 2</kbd> &rarr; Dashboard</p>
-                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 3</kbd> &rarr; Setup</p>
-                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 4</kbd> &rarr; Data Entry</p>
-                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 5</kbd> &rarr; Accounting</p>
-                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 6</kbd> &rarr; Reports</p>
-                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 7</kbd> &rarr; Posting</p>
-                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 8</kbd> &rarr; Logistics</p>
-                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 9</kbd> &rarr; HR</p>
-                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + 0</kbd> &rarr; Admin</p>
-                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + C</kbd> &rarr; Chat</p>
-                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Escape</kbd> &rarr; Go Back (with confirmation)</p>
+                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F1</kbd> &rarr; Analytics</p>
+                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F2</kbd> &rarr; Dashboard</p>
+                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F3</kbd> &rarr; Setup</p>
+                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F4</kbd> &rarr; Data Entry</p>
+                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F5</kbd> &rarr; Accounting</p>
+                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F6</kbd> &rarr; Reports</p>
+                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F7</kbd> &rarr; Posting</p>
+                            <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F8</kbd> &rarr; Logistics</p>
+                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F9</kbd> &rarr; HR</p>
+                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F10</kbd> &rarr; Customs</p>
+                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F11</kbd> &rarr; Admin</p>
+                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">F12</kbd> &rarr; Chat</p>
                         </div>
                     </div>
                     <div>
-                        <h3 className="text-lg font-semibold mb-2 text-slate-800">Quick Access Shortcuts</h3>
+                        <h3 className="text-lg font-semibold mb-2 text-slate-800">Sub-Menu Navigation</h3>
                         <p className="text-sm text-slate-500 mb-2">These work from anywhere in the application.</p>
                          <div className="grid grid-cols-2 gap-x-8 gap-y-2">
                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + O</kbd> &rarr; Original Opening</p>
@@ -563,6 +661,10 @@ const App: React.FC = () => {
                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + N</kbd> &rarr; New Voucher</p>
                             <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Alt + E</kbd> &rarr; Update Voucher</p>
                         </div>
+                    </div>
+                    <div>
+                         <h3 className="text-lg font-semibold mb-2 text-slate-800">Other</h3>
+                         <p><kbd className="px-2 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-200 rounded-lg">Escape</kbd> (twice) &rarr; Go Back One Step</p>
                     </div>
                 </div>
             </Modal>

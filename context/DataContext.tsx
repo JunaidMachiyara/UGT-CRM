@@ -21,7 +21,7 @@ const firebaseConfig = {
     measurementId: "G-SBESXWSZ85"
 };
 
-let auth: any, db: any;
+let auth: any, db: any, storage: any;
 try {
     const firebase = (window as any).firebase;
     if (firebase) {
@@ -30,18 +30,19 @@ try {
         }
         auth = firebase.auth();
         db = firebase.firestore();
+        storage = firebase.storage();
     } else {
         console.error("Firebase is not available. Check script tags in index.html.");
     }
 } catch (e) {
     console.error("Firebase initialization failed:", e);
 }
-export { auth, db };
+export { auth, db, storage };
 // --- END: Firebase Setup ---
 
 
 // --- START: PERMISSIONS SETUP ---
-export const mainModules: Module[] = ['dashboard', 'setup', 'dataEntry', 'accounting', 'reports', 'posting', 'logistics', 'hr', 'admin', 'chat'];
+export const mainModules: Module[] = ['dashboard', 'setup', 'dataEntry', 'accounting', 'reports', 'posting', 'logistics', 'hr', 'customs', 'admin', 'chat'];
 
 export const dataEntrySubModules = [
     { key: 'dataEntry/opening', label: 'Original Opening' },
@@ -212,6 +213,8 @@ const getInitialState = (): AppState => {
         packingMaterialItems: [],
         packingMaterialPurchases: [],
         logisticsEntries: [],
+        guaranteeCheques: [],
+        customsDocuments: [],
         favoriteCombinations: [],
         journalEntries: [],
         testEntries: [],
@@ -224,6 +227,7 @@ const getInitialState = (): AppState => {
         nextLogisticsSNo: 1,
         nextHRTaskId: 1,
         nextHREnquiryId: 1,
+        nextGuaranteeChequeSNo: 1,
         nextReceiptVoucherNumber: 1,
         nextPaymentVoucherNumber: 1,
         nextExpenseVoucherNumber: 1,
@@ -243,7 +247,7 @@ const getInitialState = (): AppState => {
 
 const initialState = processState(getInitialState());
 
-type EntityName = keyof Omit<AppState, 'nextInvoiceNumber' | 'nextOngoingOrderNumber' | 'nextFinishedGoodsPurchaseNumber' | 'nextReceiptVoucherNumber' | 'nextPaymentVoucherNumber' | 'nextExpenseVoucherNumber' | 'nextJournalVoucherNumber' | 'nextLogisticsSNo' | 'favoriteCombinations' | 'nextHRTaskId' | 'nextHREnquiryId' | 'plannerData' | 'plannerLastWeeklyReset' | 'plannerLastMonthlyReset' | 'nextTestEntryNumber' | 'plannerCustomerIds' | 'plannerSupplierIds' | 'plannerExpenseAccountIds' | 'nextPackingMaterialPurchaseNumber'>;
+type EntityName = keyof Omit<AppState, 'nextInvoiceNumber' | 'nextOngoingOrderNumber' | 'nextFinishedGoodsPurchaseNumber' | 'nextReceiptVoucherNumber' | 'nextPaymentVoucherNumber' | 'nextExpenseVoucherNumber' | 'nextJournalVoucherNumber' | 'nextLogisticsSNo' | 'favoriteCombinations' | 'nextHRTaskId' | 'nextHREnquiryId' | 'plannerData' | 'plannerLastWeeklyReset' | 'plannerLastMonthlyReset' | 'nextTestEntryNumber' | 'plannerCustomerIds' | 'plannerSupplierIds' | 'plannerExpenseAccountIds' | 'nextPackingMaterialPurchaseNumber' | 'nextGuaranteeChequeSNo'>;
 type Entity = AppState[EntityName][0];
 
 type AddAction = { type: 'ADD_ENTITY'; payload: { entity: EntityName; data: Entity }; };
@@ -333,6 +337,7 @@ const dataReducer = (state: AppState, action: Action): AppState => {
             if (entity === 'finishedGoodsPurchases') newState.nextFinishedGoodsPurchaseNumber = state.nextFinishedGoodsPurchaseNumber + 1;
             if (entity === 'packingMaterialPurchases') newState.nextPackingMaterialPurchaseNumber = state.nextPackingMaterialPurchaseNumber + 1;
             if (entity === 'logisticsEntries') newState.nextLogisticsSNo = state.nextLogisticsSNo + 1;
+            if (entity === 'guaranteeCheques') newState.nextGuaranteeChequeSNo = state.nextGuaranteeChequeSNo + 1;
             if (entity === 'hrTasks') newState.nextHRTaskId = state.nextHRTaskId + 1;
             if (entity === 'hrEnquiries') newState.nextHREnquiryId = state.nextHREnquiryId + 1;
             if (entity === 'testEntries') newState.nextTestEntryNumber = state.nextTestEntryNumber + 1;
@@ -423,6 +428,8 @@ const dataReducer = (state: AppState, action: Action): AppState => {
                     packingMaterialItems: firestoreState.packingMaterialItems || defaultState.packingMaterialItems,
                     packingMaterialPurchases: firestoreState.packingMaterialPurchases || defaultState.packingMaterialPurchases,
                     logisticsEntries: firestoreState.logisticsEntries || defaultState.logisticsEntries,
+                    guaranteeCheques: firestoreState.guaranteeCheques || defaultState.guaranteeCheques,
+                    customsDocuments: firestoreState.customsDocuments || defaultState.customsDocuments,
                     favoriteCombinations: firestoreState.favoriteCombinations || defaultState.favoriteCombinations,
                     journalEntries: firestoreState.journalEntries || defaultState.journalEntries,
                     testEntries: firestoreState.testEntries || defaultState.testEntries,
@@ -434,6 +441,7 @@ const dataReducer = (state: AppState, action: Action): AppState => {
                     nextLogisticsSNo: firestoreState.nextLogisticsSNo ?? defaultState.nextLogisticsSNo,
                     nextHRTaskId: firestoreState.nextHRTaskId ?? defaultState.nextHRTaskId,
                     nextHREnquiryId: firestoreState.nextHREnquiryId ?? defaultState.nextHREnquiryId,
+                    nextGuaranteeChequeSNo: firestoreState.nextGuaranteeChequeSNo ?? defaultState.nextGuaranteeChequeSNo,
                     nextReceiptVoucherNumber: firestoreState.nextReceiptVoucherNumber ?? defaultState.nextReceiptVoucherNumber,
                     nextPaymentVoucherNumber: firestoreState.nextPaymentVoucherNumber ?? defaultState.nextPaymentVoucherNumber,
                     nextExpenseVoucherNumber: firestoreState.nextExpenseVoucherNumber ?? defaultState.nextExpenseVoucherNumber,
